@@ -70,9 +70,12 @@ class WifiDataCollector(Node):
             self.odom_callback,
             qos
         )
+
         self.current_pose = None
         self.transform_available = False
 
+        self.wait_for_transform()
+        
         # Create timer for periodic updates
         self.timer = self.create_timer(self.update_interval, self.timer_callback)
         
@@ -198,14 +201,14 @@ class WifiDataCollector(Node):
                     SET bit_rate = ?, link_quality = ?, signal_level = ?, timestamp = CURRENT_TIMESTAMP
                     WHERE id = ?
                 """, (bit_rate, link_quality, signal_level, existing_record[0]))
-                self.get_logger().info(f"Updated existing record: {existing_record[0]}")
+                # self.get_logger().info(f"Updated existing record: {existing_record[0]}")
             else:
                 # Insert new record
                 cursor.execute("""
                     INSERT INTO wifi_data (x, y, bit_rate, link_quality, signal_level)
                     VALUES (?, ?, ?, ?, ?)
                 """, (self.x, self.y, bit_rate, link_quality, signal_level))
-                self.get_logger().info(f"Inserted new record: {self.x}, {self.y}, {bit_rate}, {link_quality}, {signal_level}")
+                # self.get_logger().info(f"Inserted new record: {self.x}, {self.y}, {bit_rate}, {link_quality}, {signal_level}")
             conn.commit()
             conn.close()
             
@@ -342,29 +345,29 @@ class WifiDataCollector(Node):
         # if self.get_clock().now().nanoseconds % (24 * 60 * 60 * 1e9) < self.update_interval * 1e9:
         #     self.cleanup_old_data()
 
-    # def wait_for_transform(self, timeout_sec: float = 60.0):
-    #     """Wait for the transform from odom to map to become available."""
-    #     self.get_logger().info("Waiting for transform from odom to map...")
-    #     start_time = self.get_clock().now()
+    def wait_for_transform(self, timeout_sec: float = 60.0):
+        """Wait for the transform from odom to map to become available."""
+        self.get_logger().info("Waiting for transform from odom to map...")
+        start_time = self.get_clock().now()
         
-    #     while rclpy.ok():
-    #         try:
-    #             # Try to get the transform
-    #             transform = self.tf_buffer.lookup_transform(
-    #                 'map',
-    #                 'odom',
-    #                 Time(),
-    #                 timeout=Duration(seconds=0.1)
-    #             )
-    #             self.get_logger().info("Transform from odom to map is available")
-    #             return
-    #         except (LookupException, ConnectivityException, ExtrapolationException):
-    #             # Check if we've exceeded the timeout
-    #             if (self.get_clock().now() - start_time).nanoseconds / 1e9 > timeout_sec:
-    #                 self.get_logger().error(f"Timeout waiting for transform after {timeout_sec} seconds")
-    #                 raise RuntimeError("Transform not available")
-    #             # Sleep briefly before trying again
-    #             rclpy.spin_once(self, timeout_sec=0.1)
+        while rclpy.ok():
+            try:
+                # Try to get the transform
+                transform = self.tf_buffer.lookup_transform(
+                    'map',
+                    'odom',
+                    Time(),
+                    timeout=Duration(seconds=0.1)
+                )
+                self.get_logger().info("Transform from odom to map is available")
+                return
+            except (LookupException, ConnectivityException, ExtrapolationException):
+                # Check if we've exceeded the timeout
+                if (self.get_clock().now() - start_time).nanoseconds / 1e9 > timeout_sec:
+                    self.get_logger().error(f"Timeout waiting for transform after {timeout_sec} seconds")
+                    raise RuntimeError("Transform not available")
+            # Sleep briefly before trying again
+            rclpy.spin_once(self, timeout_sec=0.1)
 
 def main(args=None):
     # import ipdb; ipdb.set_trace()  # Add this line to start the debugger
