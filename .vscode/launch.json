@@ -1,0 +1,16 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug WiFi Logger Node",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/wifi_logger_visualizer/wifi_logger_node.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}/install/wifi_logger_visualizer/lib/python3.10/site-packages:${env:PYTHONPATH}"
+            }
+        }
+    ]
+} 

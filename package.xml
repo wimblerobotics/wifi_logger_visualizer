@@ -2,17 +2,22 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>wifi_logger_visualizer</name>
-  <version>0.0.0</version>
-  <description>ROS2 WiFi Logger and Visualizer Package</description>
-  <maintainer email="ros@todo.todo">ros</maintainer>
+  <version>0.1.0</version>
+  <description>WiFi signal strength logger and visualizer for ROS2</description>
+  <maintainer email="your.email@example.com">Your Name</maintainer>
   <license>MIT</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>ament_cmake_python</buildtool_depend>
+
   <depend>rclpy</depend>
   <depend>nav_msgs</depend>
-  <depend>numpy</depend>
-  <depend>scipy</depend>
-  <depend>sqlite3</depend>
+  <depend>geometry_msgs</depend>
+  <depend>tf2_ros</depend>
+  <depend>tf2_geometry_msgs</depend>
+  <depend>python3-numpy</depend>
+  <depend>python3-scipy</depend>
+  <depend>python3-sqlite3</depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
@@ -20,6 +25,6 @@
   <test_depend>python3-pytest</test_depend>
 
   <export>
-    <build_type>ament_python</build_type>
+    <build_type>ament_cmake</build_type>
   </export>
 </package>
