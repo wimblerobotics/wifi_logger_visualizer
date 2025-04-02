@@ -17,10 +17,10 @@ class WifiVisualizerNode(Node):
         super().__init__('wifi_visualizer_node')
         
         # Declare parameters
-        self.declare_parameter('db_path', os.path.join(os.getcwd(), 'wifi_data.db'))
+        self.declare_parameter('db_path', os.path.join(os.getcwd(), '/home/ros/wifi_visualizer_logger_ws/wifi_data.db'))
         self.declare_parameter('publish_frequency', 1.0)  # Hz
         self.declare_parameter('db_check_frequency', 2.0)  # Hz
-        self.declare_parameter('max_interpolation_distance', 5.0)  # meters
+        self.declare_parameter('max_interpolation_distance', 1.0)  # meters
         self.declare_parameter('enable_link_quality', True)
         self.declare_parameter('enable_signal_level', True)
         self.declare_parameter('enable_bit_rate', True)
@@ -51,6 +51,7 @@ class WifiVisualizerNode(Node):
         self.costmap_resolution = None
         self.costmap_width = None
         self.costmap_height = None
+        self.costmap_origin = None
         
         # Wait for costmap topic
         self.get_logger().info(f'Waiting for costmap topic {self.costmap_topic}...')
@@ -103,6 +104,12 @@ class WifiVisualizerNode(Node):
             nonlocal msg, received
             msg = msg_data
             received = True
+            # Log the received costmap info immediately
+            self.get_logger().info("Received costmap info:")
+            self.get_logger().info(f"  - Resolution: {msg_data.info.resolution}")
+            self.get_logger().info(f"  - Width: {msg_data.info.width}")
+            self.get_logger().info(f"  - Height: {msg_data.info.height}")
+            self.get_logger().info(f"  - Origin: ({msg_data.info.origin.position.x}, {msg_data.info.origin.position.y})")
         
         sub = self.create_subscription(OccupancyGrid, self.costmap_topic, callback, 1)
         
@@ -116,8 +123,11 @@ class WifiVisualizerNode(Node):
             self.costmap_resolution = msg.info.resolution
             self.costmap_width = msg.info.width
             self.costmap_height = msg.info.height
-            self.get_logger().info(f'Received costmap with resolution {self.costmap_resolution}, '
-                                 f'width {self.costmap_width}, height {self.costmap_height}')
+            self.costmap_origin = msg.info.origin  # Store the origin in the class member
+            self.get_logger().info(f'Stored costmap with resolution {self.costmap_resolution}, '
+                                 f'width {self.costmap_width}, height {self.costmap_height}, '
+                                 f'origin: x={self.costmap_origin.position.x}, '
+                                 f'y={self.costmap_origin.position.y}')
         else:
             raise RuntimeError(f'Failed to receive costmap from topic {self.costmap_topic}')
 
@@ -167,46 +177,95 @@ class WifiVisualizerNode(Node):
             return []
 
     def create_costmap(self, data, field_name, min_val, max_val):
-        """Create a costmap from the data using RBF interpolation."""
+        """Create a signal field map showing values at each database point."""
         if not data:
             return None
-            
+        
         # Extract coordinates and values
         x = np.array([row[0] for row in data])
         y = np.array([row[1] for row in data])
         values = np.array([row[field_name] for row in data])
         
-        # Create grid matching the target costmap size
-        x_min, x_max = np.min(x), np.max(x)
-        y_min, y_max = np.min(y), np.max(y)
-        xi = np.linspace(x_min, x_max, self.costmap_width)
-        yi = np.linspace(y_min, y_max, self.costmap_height)
-        xi, yi = np.meshgrid(xi, yi)
+        # Initialize output grid with unknown values (-1)
+        zi = np.full((self.costmap_height, self.costmap_width), -1, dtype=np.int8)
         
-        # Create interpolator
-        rbf = Rbf(x, y, values, function='linear')
+        # Debug logging for first few points
+        for i in range(min(3, len(x))):
+            self.get_logger().info(f"Sample point {i}: world coords ({x[i]:.3f}, {y[i]:.3f})")
         
-        # Interpolate values
-        zi = rbf(xi, yi)
-        
-        # Apply maximum distance threshold
-        for i in range(self.costmap_height):
-            for j in range(self.costmap_width):
-                distances = np.sqrt((x - xi[i,j])**2 + (y - yi[i,j])**2)
-                if np.min(distances) > self.max_interpolation_distance:
-                    zi[i,j] = -1  # Unknown value
-        
-        # Normalize values to 0-100 range
-        zi = np.clip(zi, min_val, max_val)
-        zi = ((zi - min_val) / (max_val - min_val) * 100).astype(np.int8)
-        
-        # Replace NaN values with -1 (unknown)
-        zi = np.nan_to_num(zi, nan=-1)
+        # For each data point
+        for i in range(len(x)):
+            # Convert world coordinates to grid coordinates
+            # Note: grid coordinates are zero at the origin and increase right/up
+            grid_x = int((x[i] - self.costmap_origin.position.x) / self.costmap_resolution)
+            grid_y = int((y[i] - self.costmap_origin.position.y) / self.costmap_resolution)
+            
+            # Debug first few points' grid coordinates
+            if i < 3:
+                self.get_logger().info(f"Sample point {i}: grid coords ({grid_x}, {grid_y})")
+                self.get_logger().info(f"  - Using origin: ({self.costmap_origin.position.x}, {self.costmap_origin.position.y})")
+                self.get_logger().info(f"  - Using resolution: {self.costmap_resolution}")
+            
+            # Skip if point is outside the costmap
+            if (grid_x < 0 or grid_x >= self.costmap_width or 
+                grid_y < 0 or grid_y >= self.costmap_height):
+                if i < 3:
+                    self.get_logger().warn(f"Point {i} ({x[i]}, {y[i]}) -> ({grid_x}, {grid_y}) outside costmap bounds")
+                continue
+            
+            # Calculate the radius in grid cells for max_interpolation_distance
+            radius_cells = int(self.max_interpolation_distance / self.costmap_resolution)
+            
+            # Create coordinate arrays for the circular region
+            y_indices, x_indices = np.mgrid[-radius_cells:radius_cells + 1, -radius_cells:radius_cells + 1]
+            
+            # Create the circular mask
+            distances = np.sqrt(x_indices**2 + y_indices**2) * self.costmap_resolution
+            mask = distances <= self.max_interpolation_distance
+            
+            # Get the actual coordinates in the grid
+            y_coords = grid_y + y_indices[mask]
+            x_coords = grid_x + x_indices[mask]
+            
+            # Filter out coordinates outside the grid
+            valid = (y_coords >= 0) & (y_coords < self.costmap_height) & \
+                    (x_coords >= 0) & (x_coords < self.costmap_width)
+            
+            if not np.any(valid):
+                if i < 3:
+                    self.get_logger().warn(f"No valid grid points for data point {i}")
+                continue
+            
+            y_coords = y_coords[valid]
+            x_coords = x_coords[valid]
+            distances = distances[mask][valid]
+            
+            # Calculate weights based on distance
+            weights = np.maximum(0, 1 - (distances / self.max_interpolation_distance))
+            
+            # Update grid points
+            current_value = values[i]
+            if min_val <= current_value <= max_val:
+                normalized_value = int(((current_value - min_val) / (max_val - min_val)) * 100)
+                
+                # Mark the exact measurement point with full value
+                if 0 <= grid_y < self.costmap_height and 0 <= grid_x < self.costmap_width:
+                    zi[grid_y, grid_x] = normalized_value
+                
+                # Update surrounding points with interpolated values
+                for idx in range(len(y_coords)):
+                    y_idx, x_idx = y_coords[idx], x_coords[idx]
+                    if zi[y_idx, x_idx] == -1:
+                        zi[y_idx, x_idx] = int(normalized_value * weights[idx])
+                    else:
+                        # For overlapping regions, take the maximum value
+                        zi[y_idx, x_idx] = max(zi[y_idx, x_idx], 
+                                             int(normalized_value * weights[idx]))
         
         return zi
 
     def publish_costmap(self, data, field_name, publisher, min_val, max_val):
-        """Create and publish a costmap."""
+        """Create and publish a costmap aligned with the global costmap."""
         costmap = self.create_costmap(data, field_name, min_val, max_val)
         if costmap is None:
             return
@@ -214,13 +273,20 @@ class WifiVisualizerNode(Node):
         msg = OccupancyGrid()
         msg.header.frame_id = 'map'
         msg.header.stamp = self.get_clock().now().to_msg()
+        
+        # Use exactly the same metadata as the global costmap
         msg.info.resolution = self.costmap_resolution
         msg.info.width = self.costmap_width
         msg.info.height = self.costmap_height
-        msg.info.origin.position.x = np.min([row[0] for row in data])
-        msg.info.origin.position.y = np.min([row[1] for row in data])
-        msg.info.origin.position.z = 0.0
-        msg.info.origin.orientation.w = 1.0
+        msg.info.origin = self.costmap_origin
+        
+        # Log costmap metadata for debugging
+        self.get_logger().info("Publishing costmap with:")
+        self.get_logger().info(f"  - Resolution: {msg.info.resolution}")
+        self.get_logger().info(f"  - Width: {msg.info.width}")
+        self.get_logger().info(f"  - Height: {msg.info.height}")
+        self.get_logger().info(f"  - Origin: ({msg.info.origin.position.x}, {msg.info.origin.position.y})")
+        
         msg.data = costmap.flatten().tolist()
         
         publisher.publish(msg)

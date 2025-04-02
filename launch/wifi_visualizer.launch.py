@@ -26,7 +26,7 @@ def generate_launch_description():
     
     max_interpolation_distance_arg = DeclareLaunchArgument(
         'max_interpolation_distance',
-        default_value='5.0',
+        default_value='1.0',
         description='Maximum distance for interpolation in meters'
     )
     
