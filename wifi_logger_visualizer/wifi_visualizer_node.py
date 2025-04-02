@@ -124,10 +124,10 @@ class WifiVisualizerNode(Node):
             self.costmap_width = msg.info.width
             self.costmap_height = msg.info.height
             self.costmap_origin = msg.info.origin  # Store the origin in the class member
-            self.get_logger().info(f'Stored costmap with resolution {self.costmap_resolution}, '
-                                 f'width {self.costmap_width}, height {self.costmap_height}, '
-                                 f'origin: x={self.costmap_origin.position.x}, '
-                                 f'y={self.costmap_origin.position.y}')
+            # self.get_logger().info(f'Stored costmap with resolution {self.costmap_resolution}, '
+            #                      f'width {self.costmap_width}, height {self.costmap_height}, '
+            #                      f'origin: x={self.costmap_origin.position.x}, '
+            #                      f'y={self.costmap_origin.position.y}')
         else:
             raise RuntimeError(f'Failed to receive costmap from topic {self.costmap_topic}')
 
@@ -170,7 +170,7 @@ class WifiVisualizerNode(Node):
                 FROM wifi_data
             """)
             rows = self.cursor.fetchall()
-            self.get_logger().info(f"Fetched {len(rows)} rows from database")
+            # self.get_logger().info(f"Fetched {len(rows)} rows from database")
             return rows
         except sqlite3.Error as e:
             self.get_logger().error(f"Error getting data: {e}")
@@ -190,8 +190,8 @@ class WifiVisualizerNode(Node):
         zi = np.full((self.costmap_height, self.costmap_width), -1, dtype=np.int8)
         
         # Debug logging for first few points
-        for i in range(min(3, len(x))):
-            self.get_logger().info(f"Sample point {i}: world coords ({x[i]:.3f}, {y[i]:.3f})")
+        # for i in range(min(3, len(x))):
+        #     self.get_logger().info(f"Sample point {i}: world coords ({x[i]:.3f}, {y[i]:.3f})")
         
         # For each data point
         for i in range(len(x)):
@@ -201,10 +201,10 @@ class WifiVisualizerNode(Node):
             grid_y = int((y[i] - self.costmap_origin.position.y) / self.costmap_resolution)
             
             # Debug first few points' grid coordinates
-            if i < 3:
-                self.get_logger().info(f"Sample point {i}: grid coords ({grid_x}, {grid_y})")
-                self.get_logger().info(f"  - Using origin: ({self.costmap_origin.position.x}, {self.costmap_origin.position.y})")
-                self.get_logger().info(f"  - Using resolution: {self.costmap_resolution}")
+            # if i < 3:
+            #     self.get_logger().info(f"Sample point {i}: grid coords ({grid_x}, {grid_y})")
+            #     self.get_logger().info(f"  - Using origin: ({self.costmap_origin.position.x}, {self.costmap_origin.position.y})")
+            #     self.get_logger().info(f"  - Using resolution: {self.costmap_resolution}")
             
             # Skip if point is outside the costmap
             if (grid_x < 0 or grid_x >= self.costmap_width or 
@@ -281,11 +281,11 @@ class WifiVisualizerNode(Node):
         msg.info.origin = self.costmap_origin
         
         # Log costmap metadata for debugging
-        self.get_logger().info("Publishing costmap with:")
-        self.get_logger().info(f"  - Resolution: {msg.info.resolution}")
-        self.get_logger().info(f"  - Width: {msg.info.width}")
-        self.get_logger().info(f"  - Height: {msg.info.height}")
-        self.get_logger().info(f"  - Origin: ({msg.info.origin.position.x}, {msg.info.origin.position.y})")
+        # self.get_logger().info("Publishing costmap with:")
+        # self.get_logger().info(f"  - Resolution: {msg.info.resolution}")
+        # self.get_logger().info(f"  - Width: {msg.info.width}")
+        # self.get_logger().info(f"  - Height: {msg.info.height}")
+        # self.get_logger().info(f"  - Origin: ({msg.info.origin.position.x}, {msg.info.origin.position.y})")
         
         msg.data = costmap.flatten().tolist()
         
