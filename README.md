@@ -10,20 +10,23 @@ All credits go to Michael Wimble and his work on [Sigyn](https://github.com/wimb
 
 ## Use cases
 
-My version of WiFi Signal Strength Logger can be used as part of a robot, or as an independent device. 
+WiFi Signal Strength Logger can be used as part of a robot, or (maybe) as an independent device. 
 
-When the package is compiled and deployed as a robot's component (_Node_), it subscribes to robot's source of coordinates (odometry or GPS topic) and logs WiFi signal data in a _sqlite3_ database.
+When the package is compiled and deployed as a robot's component (_Node_), the _wifi_logger_node.py_ node subscribes to robot's source of coordinates (odometry or GPS topic) 
+and logs WiFi signal data in a _sqlite3_ database.
+The _wifi_visualizer_node.py_ node queries the database and publishes three "costmap" topics, which can be displayed in RViz2.
 
-When used on a dedicated device, it does the same - but that device should have ROS2 GPS Node running. A Raspberry Pi can host this software.
+When used on a dedicated device, it could do the logging part, with the _wifi_logger_node.py_ and ROS2 GPS Node running. A Raspberry Pi can host this software.
 
-A companion program (_HeatMapper_) is used to overlay accumulated data from _sqlite3_ on a Google map, creating a _WiFi coverage map_ (a.k.a. "_heat map_").
+A companion program (_HeatMapper_) is used to display accumulated data from _sqlite3_ database (or, potentially, overlay it on a Google map when surveying outdoors), 
+creating a _WiFi coverage map_ (a.k.a. "_heat map_").
 It can be used after the logger completed the survey, or while doing the survey.
 
 ## Build and Deployment
 
-Install Python prerequisites:
+Install Python prerequisites, WiFi query tools and database:
 ```
-sudo apt install python3-scipy wireless-tools
+sudo apt install python3-scipy wireless-tools sqlite3
 ```
 This is how to build the package:
 ```
@@ -36,6 +39,7 @@ sudo rosdep init    # do it once, if you haven't done it before
 rosdep update
 rosdep install --from-paths src --ignore-src --rosdistro=${ROS_DISTRO} -r -y
 
+cd ~/wifi_ws
 colcon build
 ```
 
@@ -43,11 +47,14 @@ colcon build
 
 To run either node separately or together use the following commands:
 ```
-ros@plucky:~/robot_ws$ ros2 launch wifi_logger_visualizer wifi_logger.launch.py
+cd ~/wifi_ws
+source install/setup.bash
 
-ros@plucky:~/robot_ws$ ros2 launch wifi_logger_visualizer wifi_visualizer.launch.py
+ros2 launch wifi_logger_visualizer wifi_logger.launch.py
 
-ros@plucky:~/robot_ws$ ros2 launch wifi_logger_visualizer wifi_logger.launch.py
+ros2 launch wifi_logger_visualizer wifi_visualizer.launch.py
+
+ros2 launch wifi_logger_visualizer wifi_logger_visualizer.launch.py
 ```
 **Note:** _sqlite3_ database file will be created in the directory where you run Logger node: 
 ```
