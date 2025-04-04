@@ -30,8 +30,10 @@ This package provides two main nodes:
 
 - ROS2 (tested with Jazzy)
 - Python 3.8+
+- Matplotlib
 - SQLite3
 - NumPy
+- Seaborn
 - SciPy
 
 ## Installation
