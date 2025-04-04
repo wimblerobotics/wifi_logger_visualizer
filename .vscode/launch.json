@@ -3,9 +3,9 @@
     "configurations": [
         {
             "name": "Debug WiFi Heat Mapper Node",
-            "type": "python",
+            "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/wifi_logger_visualizer/heat_mapper.py",
+            "program": "${workspaceFolder}/wifi_logger_visualizer/heat_mapper_node.py",
             "console": "integratedTerminal",
             "justMyCode": true,
             "env": {
@@ -14,7 +14,7 @@
         }
         {
             "name": "Debug WiFi Logger Node",
-            "type": "python",
+            "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/wifi_logger_visualizer/wifi_logger_node.py",
             "console": "integratedTerminal",
@@ -25,7 +25,7 @@
         },
         {
             "name": "Debug WiFi Visualizer Node",
-            "type": "python",
+            "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/wifi_logger_visualizer/wifi_visualizer_node.py",
             "console": "integratedTerminal",
