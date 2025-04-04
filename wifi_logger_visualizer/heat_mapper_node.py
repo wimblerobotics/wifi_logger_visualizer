@@ -228,9 +228,9 @@ class HeatMapperNode(Node):
                     
                     # Set color (bright yellow text for better visibility)
                     text_marker.color = ColorRGBA()
-                    text_marker.color.r = 1.0  # Red
-                    text_marker.color.g = 1.0  # Green
-                    text_marker.color.b = 0.0  # No blue
+                    text_marker.color.r = 1.0 - normalized_value   # Red
+                    text_marker.color.g = 0.0  # Green
+                    text_marker.color.b = normalized_value # No blue
                     text_marker.color.a = 1.0  # Fully opaque
                     
                     # Add text marker to array
