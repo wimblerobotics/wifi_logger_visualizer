@@ -102,7 +102,7 @@ class HeatMapperNode(Node):
             cursor.execute("SELECT x, y, bit_rate, link_quality, signal_level FROM wifi_data")
             rows = cursor.fetchall()
             conn.close()
-            self.get_logger().info(f"Fetched {len(rows)} rows from database")
+            # self.get_logger().info(f"Fetched {len(rows)} rows from database")
             return rows
         except sqlite3.Error as e:
             self.get_logger().error(f"Error getting data: {e}")
@@ -150,15 +150,14 @@ class HeatMapperNode(Node):
         
         # Normalize values to 0-100 range (assuming signal levels from -90 to -30 dBm)
         if hd_max > hd_min:
-            # Replace -1 with a normalized value for visualization
-            normalized_data = np.zeros_like(heat_data, dtype=np.int8)
+            # Create a new array for normalized data, keeping -1 for unknown values
+            normalized_data = np.full_like(heat_data, -1, dtype=np.int8)
             for i in range(dim_y):
                 for j in range(dim_x):
                     if heat_data[i, j] != -1:
                         # Normalize to 0-100 range
                         normalized_data[i, j] = int(((heat_data[i, j] - hd_min) / (hd_max - hd_min)) * 100)
-                    else:
-                        normalized_data[i, j] = -1  # Keep unknown values as -1
+                    # Keep -1 for unknown values
         else:
             normalized_data = heat_data
         
