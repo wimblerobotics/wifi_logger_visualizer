@@ -23,12 +23,14 @@ class HeatMapperNode(Node):
         self.declare_parameter('db_path', 'wifi_data.db')
         self.declare_parameter('costmap_topic', '/global_costmap/costmap')
         self.declare_parameter('scale_factor', 1.0)
+        self.declare_parameter('text_size', 0.25)  # Text size in meters
         
         # Get parameter values
         self.standalone = self.get_parameter('standalone').value
         self.db_path = self.get_parameter('db_path').value
         self.costmap_topic = self.get_parameter('costmap_topic').value
         self.scale_factor = self.get_parameter('scale_factor').value
+        self.text_size = self.get_parameter('text_size').value
         
         # Log parameter values
         self.get_logger().info(f"Parameter values:")
@@ -36,6 +38,7 @@ class HeatMapperNode(Node):
         self.get_logger().info(f"  db_path: {self.db_path}")
         self.get_logger().info(f"  costmap_topic: {self.costmap_topic}")
         self.get_logger().info(f"  scale_factor: {self.scale_factor}")
+        self.get_logger().info(f"  text_size: {self.text_size} (type: {type(self.text_size)})")
         
         # Initialize costmap dimensions
         self.costmap_resolution = None
@@ -208,29 +211,63 @@ class HeatMapperNode(Node):
                     text_marker.type = Marker.TEXT_VIEW_FACING
                     text_marker.action = Marker.ADD
                     
-                    # Set position (slightly above the cube)
+                    # Set position (much higher above the cube for better visibility)
                     text_marker.pose.position.x = marker.pose.position.x
                     text_marker.pose.position.y = marker.pose.position.y
-                    text_marker.pose.position.z = 0.2  # Above the cube
+                    text_marker.pose.position.z = 1.0  # Much higher above the cube
                     
                     # Set orientation (identity)
                     text_marker.pose.orientation.w = 1.0
                     
-                    # Set text
-                    text_marker.text = f"{heat_data[i, j]}"
+                    # Set text with dBm unit for clarity
+                    text_marker.text = f"{heat_data[i, j]} dBm"
                     
-                    # Set scale (text size)
-                    text_marker.scale.z = 0.2  # Text height
+                    # Set scale (much larger text size using the parameter)
+                    text_marker.scale.z = float(self.text_size)  # Ensure it's a float
+                    self.get_logger().debug(f"Setting text size to {text_marker.scale.z} for marker {marker_id}")
                     
-                    # Set color (white text)
+                    # Set color (bright yellow text for better visibility)
                     text_marker.color = ColorRGBA()
-                    text_marker.color.r = 1.0
-                    text_marker.color.g = 1.0
-                    text_marker.color.b = 1.0
+                    text_marker.color.r = 1.0  # Red
+                    text_marker.color.g = 1.0  # Green
+                    text_marker.color.b = 0.0  # No blue
                     text_marker.color.a = 1.0  # Fully opaque
                     
                     # Add text marker to array
                     marker_array.markers.append(text_marker)
+                    
+                    # Create a background sphere behind the text for better contrast
+                    bg_marker = Marker()
+                    bg_marker.header.frame_id = "map"
+                    bg_marker.header.stamp = self.get_clock().now().to_msg()
+                    bg_marker.id = marker_id
+                    marker_id += 1
+                    bg_marker.type = Marker.SPHERE
+                    bg_marker.action = Marker.ADD
+                    
+                    # Set position (same as text)
+                    bg_marker.pose.position.x = text_marker.pose.position.x
+                    bg_marker.pose.position.y = text_marker.pose.position.y
+                    bg_marker.pose.position.z = text_marker.pose.position.z
+                    
+                    # Set orientation (identity)
+                    bg_marker.pose.orientation.w = 1.0
+                    
+                    # Set scale (slightly larger than text)
+                    bg_size = float(self.text_size) * 1.5  # Ensure it's a float
+                    bg_marker.scale.x = bg_size
+                    bg_marker.scale.y = bg_size
+                    bg_marker.scale.z = bg_size
+                    
+                    # Set color (black background)
+                    bg_marker.color = ColorRGBA()
+                    bg_marker.color.r = 0.0
+                    bg_marker.color.g = 0.0
+                    bg_marker.color.b = 0.0
+                    bg_marker.color.a = 0.7  # Semi-transparent
+                    
+                    # Add background marker to array (before text so it appears behind)
+                    marker_array.markers.append(bg_marker)
         
         # Publish the marker array
         self.heatmap_pub.publish(marker_array)

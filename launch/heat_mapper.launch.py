@@ -1,53 +1,75 @@
 from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument, ExecuteProcess
+from launch.substitutions import LaunchConfiguration, FindExecutable
 from launch_ros.actions import Node
-from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration
 import os
 
 def generate_launch_description():
-    # Declare launch arguments
-    db_path_arg = DeclareLaunchArgument(
-        'db_path',
-        default_value=os.path.join(os.getcwd(), 'wifi_data.db'),
-        description='Path to the SQLite database file'
-    )
-    
+    # Declare the standalone argument
     standalone_arg = DeclareLaunchArgument(
         'standalone',
         default_value='false',
-        description='Whether to publish a costmap (true) or display a matplotlib image (false)'
+        description='Whether to publish a costmap (true) or display matplotlib visualization (false)'
     )
-    
-    costmap_topic_arg = DeclareLaunchArgument(
-        'costmap_topic',
-        default_value='/global_costmap/costmap',
-        description='Topic to read costmap dimensions from'
+
+    # Get the current working directory for the default db_path
+    current_dir = os.getcwd()
+    default_db_path = os.path.join(current_dir, 'wifi_data.db')
+
+    # Declare the db_path argument
+    db_path_arg = DeclareLaunchArgument(
+        'db_path',
+        default_value=default_db_path,
+        description='Path to the SQLite database file'
     )
-    
+
+    # Declare the scale_factor argument
     scale_factor_arg = DeclareLaunchArgument(
         'scale_factor',
         default_value='1.0',
-        description='Scale factor for the heatmap (larger values create finer grids)'
+        description='Scale factor for the heatmap visualization'
     )
     
-    # Create the heat mapper node
+    # Declare the text_size argument - match the default in the node (0.25)
+    text_size_arg = DeclareLaunchArgument(
+        'text_size',
+        default_value='0.25',
+        description='Size of the text markers in meters'
+    )
+
+    # Create the heat mapper node with explicit parameter passing
     heat_mapper_node = Node(
         package='wifi_logger_visualizer',
         executable='heat_mapper_node.py',
         name='heat_mapper',
-        output='screen',
         parameters=[{
-            'db_path': LaunchConfiguration('db_path'),
             'standalone': LaunchConfiguration('standalone'),
-            'costmap_topic': LaunchConfiguration('costmap_topic'),
-            'scale_factor': LaunchConfiguration('scale_factor')
-        }]
+            'db_path': LaunchConfiguration('db_path'),
+            'scale_factor': LaunchConfiguration('scale_factor'),
+            'text_size': LaunchConfiguration('text_size'),
+        }],
+        output='screen'
     )
     
+    # Create a command to set the text_size parameter after the node starts
+    # This is a workaround for Jazzy parameter handling
+    set_text_size_cmd = ExecuteProcess(
+        cmd=[
+            FindExecutable(name='ros2'),
+            'param',
+            'set',
+            '/heat_mapper',
+            'text_size',
+            LaunchConfiguration('text_size')
+        ],
+        output='screen'
+    )
+
     return LaunchDescription([
-        db_path_arg,
         standalone_arg,
-        costmap_topic_arg,
+        db_path_arg,
         scale_factor_arg,
-        heat_mapper_node
+        text_size_arg,
+        heat_mapper_node,
+        set_text_size_cmd
     ]) 
