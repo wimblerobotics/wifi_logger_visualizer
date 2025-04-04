@@ -7,6 +7,9 @@ import numpy as np
 import math
 import sqlite3
 from nav_msgs.msg import OccupancyGrid
+from visualization_msgs.msg import Marker, MarkerArray
+from geometry_msgs.msg import Point
+from std_msgs.msg import ColorRGBA
 from rclpy.time import Time
 from rclpy.duration import Duration
 
@@ -44,10 +47,10 @@ class HeatMapperNode(Node):
             self.get_logger().info(f'Waiting for costmap topic {self.costmap_topic}...')
             self.wait_for_costmap()
             
-            # Create publisher for heatmap costmap
+            # Create publisher for heatmap markers
             self.heatmap_pub = self.create_publisher(
-                OccupancyGrid, 
-                'wifi_heatmap_costmap', 
+                MarkerArray, 
+                'wifi_heatmap_markers', 
                 10
             )
             
@@ -85,31 +88,32 @@ class HeatMapperNode(Node):
             raise RuntimeError(f'Failed to receive costmap from topic {self.costmap_topic}')
     
     def timer_callback(self):
-        """Periodic callback to publish heatmap costmap."""
+        """Periodic callback to publish heatmap markers."""
         # Get data from database
         data = self.get_data()
         if not data:
             return
             
-        # Create and publish costmap
-        self.publish_heatmap_costmap(data)
+        # Create and publish markers
+        self.publish_heatmap_markers(data)
     
     def get_data(self):
         """Get all data from the database."""
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
-            cursor.execute("SELECT x, y, bit_rate, link_quality, signal_level FROM wifi_data")
+
+            cursor.execute("SELECT x,y,bit_rate,link_quality,signal_level FROM wifi_data")
             rows = cursor.fetchall()
             conn.close()
             # self.get_logger().info(f"Fetched {len(rows)} rows from database")
             return rows
         except sqlite3.Error as e:
-            self.get_logger().error(f"Error getting data: {e}")
+            self.get_logger().error(f"Error: retrieving wifi data: {e}")
             return []
     
-    def publish_heatmap_costmap(self, data):
-        """Create and publish a heatmap costmap without interpolation."""
+    def publish_heatmap_markers(self, data):
+        """Create and publish a heatmap as MarkerArray with transparency support."""
         if not data:
             return
             
@@ -148,34 +152,89 @@ class HeatMapperNode(Node):
                 hd_max = max(hd_max, hd_val)
                 heat_data[grid_y, grid_x] = hd_val
         
-        # Normalize values to 0-100 range (assuming signal levels from -90 to -30 dBm)
-        if hd_max > hd_min:
-            # Create a new array for normalized data, keeping -1 for unknown values
-            normalized_data = np.full_like(heat_data, -1, dtype=np.int8)
-            for i in range(dim_y):
-                for j in range(dim_x):
-                    if heat_data[i, j] != -1:
-                        # Normalize to 0-100 range
-                        normalized_data[i, j] = int(((heat_data[i, j] - hd_min) / (hd_max - hd_min)) * 100)
-                    # Keep -1 for unknown values
-        else:
-            normalized_data = heat_data
+        # Create a MarkerArray message
+        marker_array = MarkerArray()
+        marker_array.markers = []
         
-        # Create and publish the costmap message
-        msg = OccupancyGrid()
-        msg.header.frame_id = 'map'
-        msg.header.stamp = self.get_clock().now().to_msg()
-        msg.info.resolution = self.costmap_resolution
-        msg.info.width = dim_x
-        msg.info.height = dim_y
-        msg.info.origin.position.x = x_min
-        msg.info.origin.position.y = y_min
-        msg.info.origin.position.z = 0.0
-        msg.info.origin.orientation.w = 1.0
-        msg.data = normalized_data.flatten().tolist()
+        # Create a marker for each cell with data
+        marker_id = 0
+        for i in range(dim_y):
+            for j in range(dim_x):
+                if heat_data[i, j] != -1:
+                    # Create a marker for this cell
+                    marker = Marker()
+                    marker.header.frame_id = "map"
+                    marker.header.stamp = self.get_clock().now().to_msg()
+                    marker.id = marker_id
+                    marker_id += 1
+                    marker.type = Marker.CUBE
+                    marker.action = Marker.ADD
+                    
+                    # Set position (center of the cell)
+                    marker.pose.position.x = x_min + j * self.costmap_resolution + self.costmap_resolution / 2
+                    marker.pose.position.y = y_min + i * self.costmap_resolution + self.costmap_resolution / 2
+                    marker.pose.position.z = 0.0
+                    
+                    # Set orientation (identity)
+                    marker.pose.orientation.w = 1.0
+                    
+                    # Set scale (size of the cell)
+                    marker.scale.x = self.costmap_resolution
+                    marker.scale.y = self.costmap_resolution
+                    marker.scale.z = 0.1  # Thin cube
+                    
+                    # Normalize value to 0-1 range for color
+                    if hd_max > hd_min:
+                        normalized_value = (heat_data[i, j] - hd_min) / (hd_max - hd_min)
+                    else:
+                        normalized_value = 0.5  # Default to middle value if all values are the same
+                    
+                    # Set color based on normalized value (red to blue gradient)
+                    marker.color = ColorRGBA()
+                    marker.color.r = 1.0 - normalized_value  # Red component (1.0 to 0.0)
+                    marker.color.g = 0.0  # Green component (constant)
+                    marker.color.b = normalized_value  # Blue component (0.0 to 1.0)
+                    marker.color.a = 0.7  # Alpha (transparency) - 0.7 for semi-transparent
+                    
+                    # Add marker to array
+                    marker_array.markers.append(marker)
+                    
+                    # Create a text marker to show the signal value
+                    text_marker = Marker()
+                    text_marker.header.frame_id = "map"
+                    text_marker.header.stamp = self.get_clock().now().to_msg()
+                    text_marker.id = marker_id
+                    marker_id += 1
+                    text_marker.type = Marker.TEXT_VIEW_FACING
+                    text_marker.action = Marker.ADD
+                    
+                    # Set position (slightly above the cube)
+                    text_marker.pose.position.x = marker.pose.position.x
+                    text_marker.pose.position.y = marker.pose.position.y
+                    text_marker.pose.position.z = 0.2  # Above the cube
+                    
+                    # Set orientation (identity)
+                    text_marker.pose.orientation.w = 1.0
+                    
+                    # Set text
+                    text_marker.text = f"{heat_data[i, j]}"
+                    
+                    # Set scale (text size)
+                    text_marker.scale.z = 0.2  # Text height
+                    
+                    # Set color (white text)
+                    text_marker.color = ColorRGBA()
+                    text_marker.color.r = 1.0
+                    text_marker.color.g = 1.0
+                    text_marker.color.b = 1.0
+                    text_marker.color.a = 1.0  # Fully opaque
+                    
+                    # Add text marker to array
+                    marker_array.markers.append(text_marker)
         
-        self.heatmap_pub.publish(msg)
-        self.get_logger().debug(f"Published heatmap costmap with dimensions {dim_x}x{dim_y}")
+        # Publish the marker array
+        self.heatmap_pub.publish(marker_array)
+        self.get_logger().debug(f"Published heatmap markers with {len(marker_array.markers)//2} cells")
         
     def create_heatmap(self):
         """Create a matplotlib heatmap from the database data."""
