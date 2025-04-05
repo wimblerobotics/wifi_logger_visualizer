@@ -138,7 +138,7 @@ The heat mapper node can operate in two modes:
    - Text markers displaying exact signal values
    - Topics:
      - **/wifi_heat_markers**: Color-coded value markers
-     - **/wifi_heat_text_markers••: Text annotations with signal values
+     -  **/wifi_heat_text_markers**: Text annotations with signal values
 
 ## Viewing the Cost maps
 
