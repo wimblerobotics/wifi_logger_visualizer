@@ -113,7 +113,7 @@ Parameters:
 - `enable_link_quality`: Enable link quality cos tmap (default: true). Topic will be published to **/wifi_link_quality_costmap**
 - `enable_signal_level`: Enable signal level cost map (default: true) Topic will be published to **/wifi_signal_level_costmap**
 - `enable_bit_rate`: Enable bit rate cos tmap (default: true). Topic will be published to **/wifi_bit_rate_costmap**
-- `costmap_topic`: Topic to read cost map dimensions from (default: `/global_costmap/costmap`)
+- `costmap_topic`: Topic to read cost map dimensions from (default: **/global_costmap/costmap**)
 
 ### Heat Mapper Node
 
@@ -125,20 +125,20 @@ ros2 launch wifi_logger_visualizer heat_mapper.launch.py
 
 Parameters:
 - `standalone`: Whether to display matplotlib visualization (true) or publish markers (false) (default: false)
-- `db_path`: Path to the SQLite database file (default: `wifi_data.db` in current directory)
+- `db_path`: Path to the SQLite database file (default: **wifi_data.db** in current directory)
 - `scale_factor`: Scale factor for the heat map visualization (default: 1.0)
 - `text_size`: Size of the text markers in meters (default: 0.08)
-- `do_publish_markers`: Whether to publish value markers (default: true). Markers are published to the `/wifi_heat_markers` topic.
-- `do_publish_text_markers`: Whether to publish text markers (default: true) Markers are published to the `/wifi_heat_text_markers` topic.
+- `do_publish_markers`: Whether to publish value markers (default: true). Markers are published to the **/wifi_heat_markers** topic.
+- `do_publish_text_markers`: Whether to publish text markers (default: true) Markers are published to the **/wifi_heat_text_markers** topic.
 
 The heat mapper node can operate in two modes:
-1. **Standalone Mode**: Displays a heat map matplotlib heat map with signal strength values
+1. **Standalone Mode**: Displays a matplotlib heat map with signal strength values
 2. **ROS Mode**: Publishes visualization markers that can be viewed in rviz2:
    - Value markers showing signal strength with color gradients
    - Text markers displaying exact signal values
    - Topics:
-     - `/wifi_heat_markers`: Color-coded value markers
-     - `/wifi_heat_text_markers`: Text annotations with signal values
+     - **/wifi_heat_markers**: Color-coded value markers
+     - **/wifi_heat_text_markers••: Text annotations with signal values
 
 ## Viewing the Cost maps
 
