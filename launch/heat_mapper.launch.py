@@ -33,7 +33,7 @@ def generate_launch_description():
     # Declare the text_size argument - match the default in the node (0.25)
     text_size_arg = DeclareLaunchArgument(
         'text_size',
-        default_value='0.25',
+        default_value='0.08',
         description='Size of the text markers in meters'
     )
 

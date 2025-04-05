@@ -24,7 +24,7 @@ class HeatMapperNode(Node):
         self.declare_parameter('db_path', 'wifi_data.db')
         self.declare_parameter('costmap_topic', '/global_costmap/costmap')
         self.declare_parameter('scale_factor', 1.0)
-        self.declare_parameter('text_size', 0.25)  # Text size in meters
+        self.declare_parameter('text_size', 0.08)  # Text size in meters
         self.declare_parameter('do_publish_markers', True)  # Whether to publish value markers
         self.declare_parameter('do_publish_text_markers', True)  # Whether to publish text markers
         
@@ -193,7 +193,7 @@ class HeatMapperNode(Node):
                     text_point.y = y
                     text_point.z = 0.2  # Position text above the cube
                     text_marker.pose.position = text_point
-                    text_marker.text = f"{signal_level:.1f} dBm\nLQ: {link_quality}"
+                    text_marker.text = f"{signal_level:.1f}"
                     text_markers.markers.append(copy.deepcopy(text_marker))
                     text_marker.id += 1
                     text_marker.color.r = 1.0 - normalized_strength 
