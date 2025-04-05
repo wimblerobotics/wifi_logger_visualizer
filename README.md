@@ -222,4 +222,4 @@ This package is licensed under the MIT License.
 
 ## Contributions
 
-I'd like to thank Sergei Grichine for his large contributions to this project, especially to the standalone heat map code. Please visit his [github](https://github.com/slgrobotics) add a star in recognition for his many contributions to robotics.
+I'd like to thank Sergei Grichine for his large contributions to this project, especially to the standalone heat map code. Please visit his [github](https://github.com/slgrobotics) and add a star in recognition for his many contributions to robotics.
