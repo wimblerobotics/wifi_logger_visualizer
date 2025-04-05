@@ -110,9 +110,9 @@ Parameters:
 - `publish_frequency`: How often to publish cost maps in Hz (default: 1.0)
 - `db_check_frequency`: How often to check for database updates in Hz (default: 2.0)
 - `max_interpolation_distance`: Maximum distance for interpolation in meters (default: 1.0)
-- `enable_link_quality`: Enable link quality cos tmap (default: true). Topic will be published to */wifi_link_quality_costmap*
-- `enable_signal_level`: Enable signal level cost map (default: true) Topic will be published to */wifi_signal_level_costmap*
-- `enable_bit_rate`: Enable bit rate cos tmap (default: true). Topic will be published to */wifi_bit_rate_costmap*
+- `enable_link_quality`: Enable link quality cos tmap (default: true). Topic will be published to **/wifi_link_quality_costmap**
+- `enable_signal_level`: Enable signal level cost map (default: true) Topic will be published to **/wifi_signal_level_costmap**
+- `enable_bit_rate`: Enable bit rate cos tmap (default: true). Topic will be published to **/wifi_bit_rate_costmap**
 - `costmap_topic`: Topic to read cost map dimensions from (default: `/global_costmap/costmap`)
 
 ### Heat Mapper Node
