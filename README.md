@@ -63,7 +63,7 @@ This package provides three main nodes:
 
 2. Install dependencies:
    ```bash
-   pip3 install numpy scipy
+   pip3 install numpy scipy seaborn
    apt install sqlite3
    ```
 
@@ -75,7 +75,7 @@ This package provides three main nodes:
 
 4. Source the workspace:
    ```bash
-   source ~/ros2_ws/install/setup.bash
+   source install/setup.bash
    ```
 
 ## Usage
@@ -109,10 +109,10 @@ Parameters:
 - `db_path`: Path to the SQLite database file (default: `wifi_data.db` in current directory)
 - `publish_frequency`: How often to publish cost maps in Hz (default: 1.0)
 - `db_check_frequency`: How often to check for database updates in Hz (default: 2.0)
-- `max_interpolation_distance`: Maximum distance for interpolation in meters (default: 5.0)
-- `enable_link_quality`: Enable link quality cos tmap (default: true)
-- `enable_signal_level`: Enable signal level cost map (default: true)
-- `enable_bit_rate`: Enable bit rate cos tmap (default: true)
+- `max_interpolation_distance`: Maximum distance for interpolation in meters (default: 1.0)
+- `enable_link_quality`: Enable link quality cos tmap (default: true). Topic will be published to */wifi_link_quality_costmap*
+- `enable_signal_level`: Enable signal level cost map (default: true) Topic will be published to */wifi_signal_level_costmap*
+- `enable_bit_rate`: Enable bit rate cos tmap (default: true). Topic will be published to */wifi_bit_rate_costmap*
 - `costmap_topic`: Topic to read cost map dimensions from (default: `/global_costmap/costmap`)
 
 ### Heat Mapper Node
