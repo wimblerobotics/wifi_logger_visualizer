@@ -12,6 +12,7 @@ from geometry_msgs.msg import Point
 from std_msgs.msg import ColorRGBA
 from rclpy.time import Time
 from rclpy.duration import Duration
+import copy
 
 class HeatMapperNode(Node):
     def __init__(self):
@@ -24,6 +25,8 @@ class HeatMapperNode(Node):
         self.declare_parameter('costmap_topic', '/global_costmap/costmap')
         self.declare_parameter('scale_factor', 1.0)
         self.declare_parameter('text_size', 0.25)  # Text size in meters
+        self.declare_parameter('do_publish_markers', True)  # Whether to publish value markers
+        self.declare_parameter('do_publish_text_markers', True)  # Whether to publish text markers
         
         # Get parameter values
         self.standalone = self.get_parameter('standalone').value
@@ -31,6 +34,8 @@ class HeatMapperNode(Node):
         self.costmap_topic = self.get_parameter('costmap_topic').value
         self.scale_factor = self.get_parameter('scale_factor').value
         self.text_size = self.get_parameter('text_size').value
+        self.do_publish_markers = self.get_parameter('do_publish_markers').value
+        self.do_publish_text_markers = self.get_parameter('do_publish_text_markers').value
         
         # Log parameter values
         self.get_logger().info(f"Parameter values:")
@@ -39,6 +44,8 @@ class HeatMapperNode(Node):
         self.get_logger().info(f"  costmap_topic: {self.costmap_topic}")
         self.get_logger().info(f"  scale_factor: {self.scale_factor}")
         self.get_logger().info(f"  text_size: {self.text_size} (type: {type(self.text_size)})")
+        self.get_logger().info(f"  do_publish_markers: {self.do_publish_markers}")
+        self.get_logger().info(f"  do_publish_text_markers: {self.do_publish_text_markers}")
         
         # Initialize costmap dimensions
         self.costmap_resolution = None
@@ -50,12 +57,20 @@ class HeatMapperNode(Node):
             self.get_logger().info(f'Waiting for costmap topic {self.costmap_topic}...')
             self.wait_for_costmap()
             
-            # Create publisher for heatmap markers
-            self.heatmap_pub = self.create_publisher(
-                MarkerArray, 
-                'wifi_heatmap_markers', 
-                10
-            )
+            # Create publishers for heatmap markers and text markers
+            if self.do_publish_markers:
+                self.heatmap_pub = self.create_publisher(
+                    MarkerArray, 
+                    'wifi_heat_markers', 
+                    10
+                )
+                
+            if self.do_publish_text_markers:
+                self.text_markers_pub = self.create_publisher(
+                    MarkerArray, 
+                    'wifi_heat_text_markers', 
+                    10
+                )
             
             # Create timer for periodic updates
             self.timer = self.create_timer(1.0, self.timer_callback)
@@ -98,7 +113,7 @@ class HeatMapperNode(Node):
             return
             
         # Create and publish markers
-        self.publish_heatmap_markers(data)
+        self.publish_heatmap_costmap(data)
     
     def get_data(self):
         """Get all data from the database."""
@@ -115,164 +130,88 @@ class HeatMapperNode(Node):
             self.get_logger().error(f"Error: retrieving wifi data: {e}")
             return []
     
-    def publish_heatmap_markers(self, data):
-        """Create and publish a heatmap as MarkerArray with transparency support."""
+    def publish_heatmap_costmap(self, data):
+        """Publish heatmap as a MarkerArray with value markers and text annotations."""
         if not data:
+            self.get_logger().warn('No data to publish')
             return
             
-        # Extract coordinates and values
-        x = np.array([row[0] for row in data])
-        y = np.array([row[1] for row in data])
-        signal_levels = np.array([row[4] for row in data])  # signal_level is at index 4
-        
-        # Find min and max coordinates
-        x_min, x_max = np.min(x), np.max(x)
-        y_min, y_max = np.min(y), np.max(y)
-        
-        # Create a discrete grid similar to create_heatmap
-        # Calculate grid dimensions
-        dim_x = int(math.ceil((x_max - x_min) / self.costmap_resolution)) + 1
-        dim_y = int(math.ceil((y_max - y_min) / self.costmap_resolution)) + 1
-        
-        # Initialize heatmap data with -1 (unknown)
-        heat_data = np.full((dim_y, dim_x), -1, dtype=np.int8)
-        
-        # Find min and max signal levels for normalization
-        hd_min = +1000.0
-        hd_max = -1000.0
-        
-        # Fill in the heatmap data
-        for i, (data_x, data_y, signal_level) in enumerate(zip(x, y, signal_levels)):
-            # Convert real-world coordinates to grid indices
-            grid_x = int(round((data_x - x_min) / self.costmap_resolution))
-            grid_y = int(round((data_y - y_min) / self.costmap_resolution))
+        # Create marker array for value markers
+        if self.do_publish_markers:
+            value_markers = MarkerArray()
+            value_marker = Marker()
+            value_marker.header.frame_id = "map"
+            value_marker.header.stamp = self.get_clock().now().to_msg()
+            value_marker.ns = "wifi_heatmap"
+            value_marker.id = 0
+            value_marker.type = Marker.CUBE_LIST
+            value_marker.action = Marker.ADD
+            value_marker.scale.x = self.costmap_resolution * 2.0
+            value_marker.scale.y = self.costmap_resolution * 2.0
+            value_marker.scale.z = 0.1  # Height of the cubes
+            value_marker.pose.orientation.w = 1.0
             
-            # Ensure indices are within bounds
-            if 0 <= grid_x < dim_x and 0 <= grid_y < dim_y:
-                # Scale the signal level back if needed
-                hd_val = math.floor(signal_level / self.scale_factor)
-                hd_min = min(hd_min, hd_val)
-                hd_max = max(hd_max, hd_val)
-                heat_data[grid_y, grid_x] = hd_val
-        
-        # Create a MarkerArray message
-        marker_array = MarkerArray()
-        marker_array.markers = []
-        
-        # Create a marker for each cell with data
-        marker_id = 0
-        for i in range(dim_y):
-            for j in range(dim_x):
-                if heat_data[i, j] != -1:
-                    # Create a marker for this cell
-                    marker = Marker()
-                    marker.header.frame_id = "map"
-                    marker.header.stamp = self.get_clock().now().to_msg()
-                    marker.id = marker_id
-                    marker_id += 1
-                    marker.type = Marker.CUBE
-                    marker.action = Marker.ADD
-                    
-                    # Set position (center of the cell)
-                    marker.pose.position.x = x_min + j * self.costmap_resolution + self.costmap_resolution / 2
-                    marker.pose.position.y = y_min + i * self.costmap_resolution + self.costmap_resolution / 2
-                    marker.pose.position.z = 0.0
-                    
-                    # Set orientation (identity)
-                    marker.pose.orientation.w = 1.0
-                    
-                    # Set scale (size of the cell)
-                    marker.scale.x = self.costmap_resolution
-                    marker.scale.y = self.costmap_resolution
-                    marker.scale.z = 0.1  # Thin cube
-                    
-                    # Normalize value to 0-1 range for color
-                    if hd_max > hd_min:
-                        normalized_value = (heat_data[i, j] - hd_min) / (hd_max - hd_min)
-                    else:
-                        normalized_value = 0.5  # Default to middle value if all values are the same
-                    
-                    # Set color based on normalized value (red to blue gradient)
-                    marker.color = ColorRGBA()
-                    marker.color.r = 1.0 - normalized_value  # Red component (1.0 to 0.0)
-                    marker.color.g = 0.0  # Green component (constant)
-                    marker.color.b = normalized_value  # Blue component (0.0 to 1.0)
-                    marker.color.a = 0.7  # Alpha (transparency) - 0.7 for semi-transparent
-                    
-                    # Add marker to array
-                    marker_array.markers.append(marker)
-                    
-                    # Create a text marker to show the signal value
-                    text_marker = Marker()
-                    text_marker.header.frame_id = "map"
-                    text_marker.header.stamp = self.get_clock().now().to_msg()
-                    text_marker.id = marker_id
-                    marker_id += 1
-                    text_marker.type = Marker.TEXT_VIEW_FACING
-                    text_marker.action = Marker.ADD
-                    
-                    # Set position (much higher above the cube for better visibility)
-                    text_marker.pose.position.x = marker.pose.position.x
-                    text_marker.pose.position.y = marker.pose.position.y
-                    text_marker.pose.position.z = 1.0  # Much higher above the cube
-                    
-                    # Set orientation (identity)
-                    text_marker.pose.orientation.w = 1.0
-                    
-                    # Set text with dBm unit for clarity
-                    text_marker.text = f"{heat_data[i, j]} dBm"
-                    
-                    # Set scale (much larger text size using the parameter)
-                    text_marker.scale.z = float(self.text_size)  # Ensure it's a float
-                    self.get_logger().debug(f"Setting text size to {text_marker.scale.z} for marker {marker_id}")
-                    
-                    # Set color (bright yellow text for better visibility)
-                    text_marker.color = ColorRGBA()
-                    text_marker.color.r = 1.0 - normalized_value   # Red
-                    text_marker.color.g = 0.0  # Green
-                    text_marker.color.b = normalized_value # No blue
-                    text_marker.color.a = 1.0  # Fully opaque
-                    
-                    # Add text marker to array
-                    marker_array.markers.append(text_marker)
-                    
-                    # Create a background sphere behind the text for better contrast
-                    bg_marker = Marker()
-                    bg_marker.header.frame_id = "map"
-                    bg_marker.header.stamp = self.get_clock().now().to_msg()
-                    bg_marker.id = marker_id
-                    marker_id += 1
-                    bg_marker.type = Marker.SPHERE
-                    bg_marker.action = Marker.ADD
-                    
-                    # Set position (same as text)
-                    bg_marker.pose.position.x = text_marker.pose.position.x
-                    bg_marker.pose.position.y = text_marker.pose.position.y
-                    bg_marker.pose.position.z = text_marker.pose.position.z
-                    
-                    # Set orientation (identity)
-                    bg_marker.pose.orientation.w = 1.0
-                    
-                    # Set scale (slightly larger than text)
-                    bg_size = float(self.text_size) * 1.5  # Ensure it's a float
-                    bg_marker.scale.x = bg_size
-                    bg_marker.scale.y = bg_size
-                    bg_marker.scale.z = bg_size
-                    
-                    # Set color (black background)
-                    bg_marker.color = ColorRGBA()
-                    bg_marker.color.r = 0.0
-                    bg_marker.color.g = 0.0
-                    bg_marker.color.b = 0.0
-                    bg_marker.color.a = 0.7  # Semi-transparent
-                    
-                    # Add background marker to array (before text so it appears behind)
-                    marker_array.markers.append(bg_marker)
-        
-        # Publish the marker array
-        self.heatmap_pub.publish(marker_array)
-        self.get_logger().debug(f"Published heatmap markers with {len(marker_array.markers)//2} cells")
-        
+            # Create marker array for text annotations
+            if self.do_publish_text_markers:
+                text_markers = MarkerArray()
+                text_marker = Marker()
+                text_marker.header.frame_id = "map"
+                text_marker.header.stamp = self.get_clock().now().to_msg()
+                text_marker.ns = "wifi_heatmap_text"
+                text_marker.id = 0
+                text_marker.type = Marker.TEXT_VIEW_FACING
+                text_marker.action = Marker.ADD
+                text_marker.scale.z = self.text_size  # Text size
+            
+            # Process each data point
+            for x, y, timestamp, link_quality, signal_level in data:
+                # Convert signal strength to color (red for weak, green for strong)
+                # Assuming signal_level is in dBm, typically ranging from -100 to 0
+                normalized_strength = (signal_level + 100) / 100.0  # Normalize to 0-1
+                normalized_strength = max(0.0, min(1.0, normalized_strength))  # Clamp to 0-1
+                
+                # Create color gradient from red (weak) to green (strong)
+                color = ColorRGBA()
+                color.r = 1.0 - normalized_strength
+                color.g = normalized_strength
+                color.b = 0.0
+                color.a = 0.8  # Slightly transparent
+                
+                # Add point to value marker
+                if self.do_publish_markers:
+                    point = Point()
+                    point.x = x
+                    point.y = y
+                    point.z = 0.0
+                    value_marker.points.append(point)
+                    value_marker.colors.append(color)
+                
+                # Add text annotation
+                if self.do_publish_text_markers:
+                    text_point = Point()
+                    text_point.x = x
+                    text_point.y = y
+                    text_point.z = 0.2  # Position text above the cube
+                    text_marker.pose.position = text_point
+                    text_marker.text = f"{signal_level:.1f} dBm\nLQ: {link_quality}"
+                    text_markers.markers.append(copy.deepcopy(text_marker))
+                    text_marker.id += 1
+                    text_marker.color.r = 1.0 - normalized_strength 
+                    text_marker.color.g = normalized_strength
+                    text_marker.color.b = 0.0
+                    text_marker.color.a = 1.0
+            
+            # Publish value markers
+            if self.do_publish_markers:
+                value_markers.markers.append(value_marker)
+                self.heatmap_pub.publish(value_markers)
+                # self.get_logger().info(f'Published {len(value_marker.points)} value markers')
+            
+            # Publish text markers
+            if self.do_publish_text_markers:
+                self.text_markers_pub.publish(text_markers)
+                # self.get_logger().info(f'Published {len(text_markers.markers)} text markers')
+    
     def create_heatmap(self):
         """Create a matplotlib heatmap from the database data."""
         try:
