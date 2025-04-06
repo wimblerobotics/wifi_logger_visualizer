@@ -68,6 +68,17 @@ This package provides three main nodes:
 
 ## Usage
 
+I have included a sample databbase that you can use to test various forms of visualization. In the commands below that want a **db_path** parameter,
+or if you want to run **sqlite3** commands on the sample database, you can set the value to the path of the sample database which is called **sample_wifi_data.db**.
+Just make sure the value of **db_path** resolves
+to the full path of the file.
+E.g., if you have a folder called **/home/ubuntu/wifi_logger_visualizer_ws** where you installed
+this package under the **src/wifi_logger_visualizer** directory, then the full path to the sample database is **/home/ubuntu/wifi_logger_visualizer_ws/src/wifi_logger_visualizer/sample_wifi_data.db**. Here's an example:
+
+```bash
+ros2 launch wifi_logger_visualizer heat_mapper.launch.py db_path:=/home/ubuntu/wifi_visualizer_logger_ws/src/wifi_logger_visualizer/sample_wifi_data.db standalone:=true
+```
+
 ### WiFi Logger Node
 
 The logger node collects WiFi data at the robot's current position:
