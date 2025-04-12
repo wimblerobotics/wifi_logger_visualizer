@@ -20,6 +20,10 @@ from rclpy.time import Time
 from rclpy.duration import Duration
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy, QoSDurabilityPolicy
 
+MAX_SIGNAL_STRENGTH = -30.0
+MIN_SIGNAL_STRENGTH = -90.0
+DEFAULT_DECIMALS_TO_ROUND = 3
+
 class WifiDataCollector(Node):
     def __init__(self):
         super().__init__('wifi_logger_node')
@@ -29,56 +33,30 @@ class WifiDataCollector(Node):
         self.tf_listener = TransformListener(self.tf_buffer, self)
         
         # Declare and get parameters
-        self.declare_parameter('db_path', os.path.join(os.getcwd(), 'wifi_data.db'))
-        self.declare_parameter('wifi_interface', '')  # Empty string means auto-detect
-        self.declare_parameter('update_interval', 1.0)
-        self.declare_parameter('max_signal_strength', -30.0)  # dBm
-        self.declare_parameter('min_signal_strength', -90.0)  # dBm
-        self.declare_parameter('decimals_to_round_coordinates', 3)  # Default to 3 decimal places
+        self.db_path = self.declare_and_get_param('db_path', os.path.join(os.getcwd(), 'wifi_data.db'))
+        self.wifi_interface = self.declare_and_get_param('wifi_interface', '')  # Empty string means auto-detect
+        self.update_interval = self.declare_and_get_param('update_interval', 1.0)
+        self.max_signal_strength = self.declare_and_get_param('max_signal_strength', MAX_SIGNAL_STRENGTH)  # dBm
+        self.min_signal_strength = self.declare_and_get_param('min_signal_strength', MIN_SIGNAL_STRENGTH)  # dBm
+        self.decimals_to_round_coordinates = self.declare_and_get_param('decimals_to_round_coordinates', DEFAULT_DECIMALS_TO_ROUND)  # Default to 3 decimal places
 
         # What to publish:
-        self.declare_parameter('publish_metrics', True)
-        self.declare_parameter('publish_overlay', True)
+        self.do_publish_metrics = self.declare_and_get_param('publish_metrics', True)
+        self.do_publish_overlay = self.declare_and_get_param('publish_overlay', True)
         
         # RViz2 overlay parameters:
-        self.declare_parameter('ov_horizontal_alignment', 0) # LEFT:0 RIGHT:1 CENTER:2
-        self.declare_parameter('ov_vertical_alignment', 3) # CENTER:2 TOP:3 Bottom:4
-        self.declare_parameter('ov_horizontal_distance', 10)
-        self.declare_parameter('ov_vertical_distance', 10)
-        self.declare_parameter('ov_width_factor', 1.0)  # adjust overlay canvas width
-        self.declare_parameter('ov_height_factor', 1.0)  # adjust overlay canvas height
-        self.declare_parameter('ov_font', "DejaVu Sans Mono")
-        self.declare_parameter('ov_font_size', 12.0)
-        self.declare_parameter('ov_font_color', "0.8 0.8 0.3 0.8") # RGBA
-        self.declare_parameter('ov_bg_color', "0.0 0.0 0.0 0.05")
-        self.declare_parameter('ov_do_short', True)
-        self.declare_parameter('ov_do_full', True)
-
-        # Get parameter values
-        self.db_path = self.get_parameter('db_path').value
-        self.wifi_interface = self.get_parameter('wifi_interface').value
-        self.update_interval = self.get_parameter('update_interval').value
-        self.max_signal_strength = self.get_parameter('max_signal_strength').value
-        self.min_signal_strength = self.get_parameter('min_signal_strength').value
-        self.decimals_to_round_coordinates = self.get_parameter('decimals_to_round_coordinates').value
-
-        # What to publish:
-        self.do_publish_metrics = self.get_parameter('publish_metrics').value
-        self.do_publish_overlay = self.get_parameter('publish_overlay').value
-
-        # RViz2 overlay parameters:
-        self.ov_horizontal_alignment = self.get_parameter('ov_horizontal_alignment').value
-        self.ov_vertical_alignment = self.get_parameter('ov_vertical_alignment').value
-        self.ov_horizontal_distance = self.get_parameter('ov_horizontal_distance').value
-        self.ov_vertical_distance = self.get_parameter('ov_vertical_distance').value
-        self.ov_width_factor = self.get_parameter('ov_width_factor').value
-        self.ov_height_factor = self.get_parameter('ov_height_factor').value
-        self.ov_font = self.get_parameter('ov_font').value
-        self.ov_font_size = self.get_parameter('ov_font_size').value
-        self.ov_font_color = self.get_parameter('ov_font_color').value
-        self.ov_bg_color = self.get_parameter('ov_bg_color').value
-        self.ov_do_short = self.get_parameter('ov_do_short').value
-        self.ov_do_full = self.get_parameter('ov_do_full').value
+        self.ov_horizontal_alignment = self.declare_and_get_param('ov_horizontal_alignment', 0) # LEFT:0 RIGHT:1 CENTER:2
+        self.ov_vertical_alignment = self.declare_and_get_param('ov_vertical_alignment', 3) # CENTER:2 TOP:3 Bottom:4
+        self.ov_horizontal_distance = self.declare_and_get_param('ov_horizontal_distance', 10)
+        self.ov_vertical_distance = self.declare_and_get_param('ov_vertical_distance', 10)
+        self.ov_width_factor = self.declare_and_get_param('ov_width_factor', 1.0)  # adjust overlay canvas width
+        self.ov_height_factor = self.declare_and_get_param('ov_height_factor', 1.0)  # adjust overlay canvas height
+        self.ov_font = self.declare_and_get_param('ov_font', "DejaVu Sans Mono")
+        self.ov_font_size = self.declare_and_get_param('ov_font_size', 12.0)
+        self.ov_font_color = self.declare_and_get_param('ov_font_color', "0.8 0.8 0.3 0.8") # RGBA
+        self.ov_bg_color = self.declare_and_get_param('ov_bg_color', "0.0 0.0 0.0 0.05")
+        self.ov_do_short = self.declare_and_get_param('ov_do_short', True)
+        self.ov_do_full = self.declare_and_get_param('ov_do_full', True)
 
         # Initialize globals which can be used before being filled:
         self.gps_sample_time = None
@@ -147,6 +125,10 @@ class WifiDataCollector(Node):
         
         # Add parameter change callback
         self.add_on_set_parameters_callback(self.parameter_callback)
+
+    def declare_and_get_param(self, name, default_value):
+        self.declare_parameter(name, default_value)
+        return self.get_parameter(name).value
 
     def parameter_callback(self, params):
         """Handle parameter updates."""
