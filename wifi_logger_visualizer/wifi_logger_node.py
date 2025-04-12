@@ -176,7 +176,12 @@ class WifiDataCollector(Node):
     def create_table(self):
         """Create the database table with proper constraints and indices."""
         try:
-            conn = sqlite3.connect(self.db_path)
+            try:
+                conn = sqlite3.connect(self.db_path)
+            except sqlite3.Error as e:
+                self.get_logger().error(f"Database connection error: {e}")
+                return
+
             cursor = conn.cursor()
             
             # Create table with proper constraints
@@ -450,7 +455,7 @@ class WifiDataCollector(Node):
         self.gps_service = 0  # SERVICE_UNKNOWN
         #self.gps_sample_time = None
 
-    def gps_status_str(self):
+    def gps_status_str(self) -> str:
         str = "Unknown"
 
         match self.gps_status:
