@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import numpy as np
 import rclpy
 from rclpy.node import Node
 import subprocess
@@ -8,6 +9,9 @@ from typing import Optional, Tuple
 import os
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import PoseStamped
+from example_interfaces.msg import Float32MultiArray
+from rviz_2d_overlay_msgs.msg import OverlayText
+from sensor_msgs.msg import NavSatFix
 from tf2_ros import TransformListener, LookupException, ConnectivityException, ExtrapolationException
 from tf2_ros.buffer import Buffer
 from tf2_geometry_msgs import do_transform_pose
@@ -25,22 +29,63 @@ class WifiDataCollector(Node):
         self.tf_listener = TransformListener(self.tf_buffer, self)
         
         # Declare and get parameters
-        self.declare_parameter('x', 0.0)
-        self.declare_parameter('y', 0.0)
         self.declare_parameter('db_path', os.path.join(os.getcwd(), 'wifi_data.db'))
         self.declare_parameter('wifi_interface', '')  # Empty string means auto-detect
         self.declare_parameter('update_interval', 1.0)
         self.declare_parameter('max_signal_strength', -30.0)  # dBm
         self.declare_parameter('min_signal_strength', -90.0)  # dBm
+        self.declare_parameter('decimals_to_round_coordinates', 3)  # Default to 3 decimal places
+
+        # What to publish:
+        self.declare_parameter('publish_metrics', True)
+        self.declare_parameter('publish_overlay', True)
         
+        # RViz2 overlay parameters:
+        self.declare_parameter('ov_horizontal_alignment', 0) # LEFT:0 RIGHT:1 CENTER:2
+        self.declare_parameter('ov_vertical_alignment', 3) # CENTER:2 TOP:3 Bottom:4
+        self.declare_parameter('ov_horizontal_distance', 10)
+        self.declare_parameter('ov_vertical_distance', 10)
+        self.declare_parameter('ov_width_factor', 1.0)  # adjust overlay canvas width
+        self.declare_parameter('ov_height_factor', 1.0)  # adjust overlay canvas height
+        self.declare_parameter('ov_font', "DejaVu Sans Mono")
+        self.declare_parameter('ov_font_size', 12.0)
+        self.declare_parameter('ov_font_color', "0.8 0.8 0.3 0.8") # RGBA
+        self.declare_parameter('ov_bg_color', "0.0 0.0 0.0 0.05")
+        self.declare_parameter('ov_do_short', True)
+        self.declare_parameter('ov_do_full', True)
+
         # Get parameter values
-        self.x = self.get_parameter('x').value
-        self.y = self.get_parameter('y').value
         self.db_path = self.get_parameter('db_path').value
         self.wifi_interface = self.get_parameter('wifi_interface').value
         self.update_interval = self.get_parameter('update_interval').value
         self.max_signal_strength = self.get_parameter('max_signal_strength').value
         self.min_signal_strength = self.get_parameter('min_signal_strength').value
+        self.decimals_to_round_coordinates = self.get_parameter('decimals_to_round_coordinates').value
+
+        # What to publish:
+        self.do_publish_metrics = self.get_parameter('publish_metrics').value
+        self.do_publish_overlay = self.get_parameter('publish_overlay').value
+
+        # RViz2 overlay parameters:
+        self.ov_horizontal_alignment = self.get_parameter('ov_horizontal_alignment').value
+        self.ov_vertical_alignment = self.get_parameter('ov_vertical_alignment').value
+        self.ov_horizontal_distance = self.get_parameter('ov_horizontal_distance').value
+        self.ov_vertical_distance = self.get_parameter('ov_vertical_distance').value
+        self.ov_width_factor = self.get_parameter('ov_width_factor').value
+        self.ov_height_factor = self.get_parameter('ov_height_factor').value
+        self.ov_font = self.get_parameter('ov_font').value
+        self.ov_font_size = self.get_parameter('ov_font_size').value
+        self.ov_font_color = self.get_parameter('ov_font_color').value
+        self.ov_bg_color = self.get_parameter('ov_bg_color').value
+        self.ov_do_short = self.get_parameter('ov_do_short').value
+        self.ov_do_full = self.get_parameter('ov_do_full').value
+
+        # Initialize globals which can be used before being filled:
+        self.gps_sample_time = None
+        self.latitude = None
+        self.longitude = None
+        self.gps_status = -2  # STATUS_UNKNOWN
+        self.gps_service = 0  # SERVICE_UNKNOWN
 
         # Initialize WiFi interface
         if not self.wifi_interface:
@@ -71,6 +116,27 @@ class WifiDataCollector(Node):
             qos
         )
 
+        self.gps_subscriber = self.create_subscription(
+            NavSatFix,
+            '/gps/filtered',
+            self.gps_callback,
+            qos
+        )
+
+        if self.do_publish_metrics:
+            self.metrics_publisher = self.create_publisher(
+                Float32MultiArray,
+                '/wifi/metrics',
+                10
+            )
+
+        if self.do_publish_overlay:
+            self.overlay_publisher = self.create_publisher(
+                OverlayText,
+                '/wifi/overlay',
+                10
+            )
+
         self.current_pose = None
         self.transform_available = False
 
@@ -85,11 +151,7 @@ class WifiDataCollector(Node):
     def parameter_callback(self, params):
         """Handle parameter updates."""
         for param in params:
-            if param.name == 'x':
-                self.x = param.value
-            elif param.name == 'y':
-                self.y = param.value
-            elif param.name == 'update_interval':
+            if param.name == 'update_interval':
                 self.update_interval = param.value
                 self.timer.timer_period_ns = int(self.update_interval * 1e9)
             elif param.name == 'max_signal_strength':
@@ -142,6 +204,10 @@ class WifiDataCollector(Node):
                     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
                     x REAL NOT NULL,
                     y REAL NOT NULL,
+                    lat REAL NULL,
+                    lon REAL NULL,
+                    gps_status INT NULL,
+                    gps_service INT NULL,
                     bit_rate REAL CHECK (bit_rate >= 0),
                     link_quality REAL CHECK (link_quality >= 0 AND link_quality <= 1),
                     signal_level REAL CHECK (signal_level >= -90.0 AND signal_level <= -30.0),
@@ -205,10 +271,10 @@ class WifiDataCollector(Node):
             else:
                 # Insert new record
                 cursor.execute("""
-                    INSERT INTO wifi_data (x, y, bit_rate, link_quality, signal_level)
-                    VALUES (?, ?, ?, ?, ?)
-                """, (self.x, self.y, bit_rate, link_quality, signal_level))
-                # self.get_logger().info(f"Inserted new record: {self.x}, {self.y}, {bit_rate}, {link_quality}, {signal_level}")
+                    INSERT INTO wifi_data (x, y, lat, lon, gps_status, gps_service, bit_rate, link_quality, signal_level)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (self.x, self.y, self.latitude, self.longitude, self.gps_status, self.gps_service, bit_rate, link_quality, signal_level))
+                #self.get_logger().info(f"Inserted new record: {self.x}, {self.y}, {self.latitude}, {self.longitude}, {self.gps_status}, {self.gps_service}, {bit_rate}, {link_quality}, {signal_level}")
             conn.commit()
             conn.close()
             
@@ -244,10 +310,12 @@ class WifiDataCollector(Node):
     def get_wifi_data(self) -> Tuple[Optional[float], Optional[float], Optional[float]]:
         """Get WiFi data with improved error handling and validation."""
         try:
-            output = subprocess.check_output(["iwconfig", self.wifi_interface]).decode("utf-8")
+            self.iwconfig_output = subprocess.check_output(["iwconfig", self.wifi_interface]).decode("utf-8")
+
+            #self.get_logger().info(self.iwconfig_output)
 
             # Extract bit rate
-            bit_rate_match = re.search(r"Bit Rate[:=](?P<bit_rate>\d+\.?\d*) (Mb/s|Gb/s)", output)
+            bit_rate_match = re.search(r"Bit Rate[:=](?P<bit_rate>\d+\.?\d*) (Mb/s|Gb/s)", self.iwconfig_output)
             if bit_rate_match:
                 bit_rate = float(bit_rate_match.group("bit_rate"))
                 if bit_rate_match.group(2) == "Gb/s":
@@ -256,7 +324,7 @@ class WifiDataCollector(Node):
                 bit_rate = None
 
             # Extract link quality
-            link_quality_match = re.search(r"Link Quality=(?P<link_quality>\d+/\d+)", output)
+            link_quality_match = re.search(r"Link Quality=(?P<link_quality>\d+/\d+)", self.iwconfig_output)
             if link_quality_match:
                 link_quality_str = link_quality_match.group("link_quality")
                 link_quality = float(link_quality_str.split('/')[0]) / float(link_quality_str.split('/')[1])
@@ -264,7 +332,7 @@ class WifiDataCollector(Node):
                 link_quality = None
 
             # Extract and validate signal level
-            signal_level_match = re.search(r"Signal level[:=](?P<signal_level>-?\d+) dBm", output)
+            signal_level_match = re.search(r"Signal level[:=](?P<signal_level>-?\d+) dBm", self.iwconfig_output)
             if signal_level_match:
                 signal_level = float(signal_level_match.group("signal_level"))
                 # Validate signal level is within expected range
@@ -282,6 +350,77 @@ class WifiDataCollector(Node):
         except Exception as e:
             self.get_logger().error(f"Unexpected error getting WiFi data: {e}")
             return None, None, None
+
+    def publish_wifi_data(self, bit_rate, link_quality, signal_level):
+        try:
+            msg = Float32MultiArray()
+            # Populate the data array (a 3x1 array), leave layout empty:
+            data = [bit_rate, link_quality, signal_level]
+            msg.data = data
+
+            #self.get_logger().info(f"Publishing WiFi data: interface: {self.wifi_interface}  bit_rate: {bit_rate}  link_quality: {link_quality}  signal_level: {signal_level}")
+            self.metrics_publisher.publish(msg)
+
+        except Exception as e:
+            self.get_logger().error(f"Unexpected error publishing WiFi data: {e}")
+
+    def publish_wifi_overlay(self, bit_rate, link_quality, signal_level, iwconfig_output):
+        try:
+
+            #self.get_logger().info(iwconfig_output)
+
+            msg = OverlayText() # https://github.com/teamspatzenhirn/rviz_2d_overlay_plugins/blob/main/rviz_2d_overlay_msgs/msg/OverlayText.msg
+
+            msg.action = OverlayText.ADD
+
+            #msg.line_width = 25 # int, pixels - Lines height in the overlay - doesn't seem to affect anything
+            msg.text_size = self.ov_font_size # font size
+            msg.font = self.ov_font
+
+            nlines = 0
+
+            msg.text = "<pre>"
+            if self.ov_do_short:
+                msg.text += f"({self.x},{self.y})  Bit Rate: {bit_rate}  Quality: {link_quality}  db: {signal_level}\n"
+                msg.text += f"({self.latitude}, {self.longitude}, {self.altitude})  {self.gps_status_str()}  {self.gps_service_str()}\n"
+                nlines += 2
+            if self.ov_do_full:
+                msg.text += iwconfig_output.rstrip()
+                nlines += 8
+            msg.text += "</pre>"
+
+            #self.get_logger().info(msg.text)
+
+            canvas_height = int(self.ov_font_size * nlines * 2.0) # adjust with ov_height_factor
+
+            # text color:
+            text_color = np.fromstring(self.ov_font_color, dtype=float, sep=" ")
+            #print(f"Text Color: {text_color}")
+            msg.fg_color.r = text_color[0]
+            msg.fg_color.g = text_color[1]
+            msg.fg_color.b = text_color[2]
+            msg.fg_color.a = text_color[3]
+
+            # overlay canvas color:
+            bg_color = np.fromstring(self.ov_bg_color, dtype=float, sep=" ")
+            #print(f"Background Color: {bg_color}")
+            msg.bg_color.r = bg_color[0]
+            msg.bg_color.g = bg_color[1]
+            msg.bg_color.b = bg_color[2]
+            msg.bg_color.a = bg_color[3]
+
+            msg.horizontal_alignment = self.ov_horizontal_alignment # OverlayText.LEFT # one of LEFT, CENTER, RIGHT
+            msg.vertical_alignment = self.ov_vertical_alignment # OverlayText.TOP # one of TOP, CENTER, BOTTOM
+            msg.horizontal_distance = self.ov_horizontal_distance # int, pixels - Horizontal distance from left/right border or center, depending on alignment
+            msg.vertical_distance = self.ov_vertical_distance # int, pixels - Vertical distance between from top/bottom border or center, depending on alignment
+            msg.width = int(1200.0 * self.ov_width_factor) # int, pixels - Width of the overlay canvas
+            msg.height = int(canvas_height * self.ov_height_factor) # int, pixels - Height of the overlay canvas
+
+            #self.get_logger().info(f"Publishing WiFi overlay: interface: {self.wifi_interface}  {iwconfig_output}")
+            self.overlay_publisher.publish(msg)
+
+        except Exception as e:
+            self.get_logger().error(f"Unexpected error publishing WiFi overlay: {e}")
 
     def odom_callback(self, msg):
         try:
@@ -321,14 +460,88 @@ class WifiDataCollector(Node):
             self.get_logger().error(f"Unexpected error in odom_callback: {e}")
             self.current_pose = None
 
+    def gps_unavailable(self):
+        self.latitude = None
+        self.longitude = None
+        self.altitude = None
+        self.gps_status = -2  # STATUS_UNKNOWN
+        self.gps_service = 0  # SERVICE_UNKNOWN
+        #self.gps_sample_time = None
+
+    def gps_status_str(self):
+        str = "Unknown"
+
+        match self.gps_status:
+            case -1:
+                str = "No Fix"
+            case 0:
+                str = "Fix"
+            case 1:
+                str = "Fix + Sat Augm"
+            case 2:
+                str = "Fix + Ground Augm"
+
+        return str
+
+    def gps_service_str(self):
+        str = ""
+
+        if self.gps_service & 1:
+            str += "GPS "
+
+        if self.gps_service & 2:
+            str += "GLONASS "
+
+        if self.gps_service & 4:
+            str += "BeiDou "
+
+        if self.gps_service & 8:
+            str += "Galileo "
+
+        return str.rstrip()
+
+    def gps_callback(self, msg):
+        try:
+            # https://github.com/ros2/common_interfaces/blob/rolling/sensor_msgs/msg/NavSatFix.msg
+            # https://github.com/ros2/common_interfaces/blob/rolling/sensor_msgs/msg/NavSatStatus.msg
+
+            self.gps_status = msg.status.status
+            self.gps_service = msg.status.service
+
+            if self.gps_status > 0:
+                # Extract latitude and longitude from the gps data
+                self.latitude = msg.latitude
+                self.longitude = msg.longitude
+                self.altitude = round(msg.altitude,1)
+                self.gps_sample_time = self.get_clock().now() # msg.header.stamp
+
+                #self.get_logger().info(f"GPS OK: status: {self.gps_status_str()}  service: {self.gps_service_str()}  ({self.latitude}, {self.longitude}, {self.altitude})")
+            else:
+                self.get_logger().info(f"GPS: no data, status: {self.gps_status_str()}  service: {self.gps_service_str()}")
+                self.gps_unavailable()
+
+        except Exception as e:
+            self.get_logger().error(f"Unexpected error in gps_callback: {e}")
+            self.gps_unavailable()
+
     def timer_callback(self):
         """Periodic callback to collect and store WiFi data."""
         if self.current_pose is None:
             self.get_logger().warn("Current pose not available, skipping data insertion")
             return
 
-        self.x, self.y = self.current_pose
+        if self.gps_sample_time is None or (self.get_clock().now() - self.gps_sample_time).nanoseconds / 1e9 > 2.0:
+            self.get_logger().warning(f"GPS: data too old, status: {self.gps_status_str()}  service: {self.gps_service_str()}")
+            self.gps_unavailable() # last GPS was more than 2 seconds ago, mark it invalid
+
+        self.x, self.y = tuple(round(x, self.decimals_to_round_coordinates) for x in self.current_pose) # let's work on a grid defined by decimals_to_round_coordinates
         bit_rate, link_quality, signal_level = self.get_wifi_data()
+
+        if self.do_publish_metrics:
+            self.publish_wifi_data(bit_rate, link_quality, signal_level)
+        
+        if self.do_publish_overlay:
+            self.publish_wifi_overlay(bit_rate, link_quality, signal_level, self.iwconfig_output)
         
         if all(v is not None for v in [bit_rate, link_quality, signal_level]):
             self.insert_data(bit_rate, link_quality, signal_level)
