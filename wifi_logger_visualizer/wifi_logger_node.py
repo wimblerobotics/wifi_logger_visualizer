@@ -19,6 +19,8 @@ import pprint
 from rclpy.time import Time
 from rclpy.duration import Duration
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy, QoSDurabilityPolicy
+from .database_manager import DatabaseManager
+from .wifi_data_fetcher import WiFiDataFetcher
 
 MAX_SIGNAL_STRENGTH = -30.0
 MIN_SIGNAL_STRENGTH = -90.0
@@ -27,17 +29,21 @@ DEFAULT_DECIMALS_TO_ROUND = 3
 class WifiDataCollector(Node):
     def __init__(self):
         super().__init__('wifi_logger_node')
-        
-        # Initialize TF buffer and listener
-        self.tf_buffer = Buffer(node=self)
-        self.tf_listener = TransformListener(self.tf_buffer, self)
-        
-        # Declare and get parameters
+
+        # Initialize parameters
         self.db_path = self.declare_and_get_param('db_path', os.path.join(os.getcwd(), 'wifi_data.db'))
-        self.wifi_interface = self.declare_and_get_param('wifi_interface', '')  # Empty string means auto-detect
+        self.wifi_interface = self.declare_and_get_param('wifi_interface', '')
+        self.min_signal_strength = self.declare_and_get_param('min_signal_strength', MIN_SIGNAL_STRENGTH)
+        self.max_signal_strength = self.declare_and_get_param('max_signal_strength', MAX_SIGNAL_STRENGTH)
+
+        # Initialize helpers
+        self.database_manager = DatabaseManager(self.db_path)
+        self.wifi_data_fetcher = WiFiDataFetcher(self.wifi_interface, self.min_signal_strength, self.max_signal_strength)
+
+        # Other initialization...
+
+        # Declare and get parameters
         self.update_interval = self.declare_and_get_param('update_interval', 1.0)
-        self.max_signal_strength = self.declare_and_get_param('max_signal_strength', MAX_SIGNAL_STRENGTH)  # dBm
-        self.min_signal_strength = self.declare_and_get_param('min_signal_strength', MIN_SIGNAL_STRENGTH)  # dBm
         self.decimals_to_round_coordinates = self.declare_and_get_param('decimals_to_round_coordinates', DEFAULT_DECIMALS_TO_ROUND)  # Default to 3 decimal places
 
         # What to publish:
@@ -76,9 +82,6 @@ class WifiDataCollector(Node):
         else:
             self.get_logger().info(f"Using WiFi interface: {self.wifi_interface}")
 
-        # Initialize database
-        self.create_table()
-        
         # Create odometry subscription with optimized QoS settings
         qos = QoSProfile(
             reliability=QoSReliabilityPolicy.BEST_EFFORT,  # Use best effort for real-time performance
@@ -173,170 +176,103 @@ class WifiDataCollector(Node):
             self.get_logger().warn(f"Error detecting WiFi interface: {e}")
             return None
 
-    def create_table(self):
-        """Create the database table with proper constraints and indices."""
+    def gps_unavailable(self):
+        self.latitude = None
+        self.longitude = None
+        self.altitude = None
+        self.gps_status = -2  # STATUS_UNKNOWN
+        self.gps_service = 0  # SERVICE_UNKNOWN
+        #self.gps_sample_time = None
+
+    def gps_status_str(self) -> str:
+        str = "Unknown"
+
+        match self.gps_status:
+            case -1:
+                str = "No Fix"
+            case 0:
+                str = "Fix"
+            case 1:
+                str = "Fix + Sat Augm"
+            case 2:
+                str = "Fix + Ground Augm"
+
+        return str
+
+    def gps_service_str(self):
+        str = ""
+
+        if self.gps_service & 1:
+            str += "GPS "
+
+        if self.gps_service & 2:
+            str += "GLONASS "
+
+        if self.gps_service & 4:
+            str += "BeiDou "
+
+        if self.gps_service & 8:
+            str += "Galileo "
+
+        return str.rstrip()
+
+    def gps_callback(self, msg):
         try:
-            try:
-                conn = sqlite3.connect(self.db_path)
-            except sqlite3.Error as e:
-                self.get_logger().error(f"Database connection error: {e}")
-                return
+            # https://github.com/ros2/common_interfaces/blob/rolling/sensor_msgs/msg/NavSatFix.msg
+            # https://github.com/ros2/common_interfaces/blob/rolling/sensor_msgs/msg/NavSatStatus.msg
 
-            cursor = conn.cursor()
-            
-            # Create table with proper constraints
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS wifi_data (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    x REAL NOT NULL,
-                    y REAL NOT NULL,
-                    lat REAL NULL,
-                    lon REAL NULL,
-                    gps_status INT NULL,
-                    gps_service INT NULL,
-                    bit_rate REAL CHECK (bit_rate >= 0),
-                    link_quality REAL CHECK (link_quality >= 0 AND link_quality <= 1),
-                    signal_level REAL CHECK (signal_level >= -90.0 AND signal_level <= -30.0),
-                    UNIQUE(x, y, timestamp)
-                )
-            """)
-            
-            # Create indices for better query performance
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_timestamp ON wifi_data(timestamp)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_coordinates ON wifi_data(x, y)")
-            
-            conn.commit()
-            conn.close()
-            self.get_logger().info(f"Database table created/verified successfully at {self.db_path}")
-        except sqlite3.Error as e:
-            self.get_logger().error(f"Error creating table: {e}")
-            raise
+            self.gps_status = msg.status.status
+            self.gps_service = msg.status.service
 
-    def validate_data(self, bit_rate: float, link_quality: float, signal_level: float) -> bool:
-        """Validate WiFi data before insertion."""
-        if bit_rate is not None and bit_rate < 0:
-            self.get_logger().warn(f"Invalid bit rate: {bit_rate}")
-            return False
-            
-        if link_quality is not None and not (0 <= link_quality <= 1):
-            self.get_logger().warn(f"Invalid link quality: {link_quality}")
-            return False
-            
-        if signal_level is not None and not (self.min_signal_strength <= signal_level <= self.max_signal_strength):
-            self.get_logger().warn(f"Signal level {signal_level} dBm outside expected range")
-            return False
-            
-        return True
+            if self.gps_status > 0:
+                # Extract latitude and longitude from the gps data
+                self.latitude = msg.latitude
+                self.longitude = msg.longitude
+                self.altitude = round(msg.altitude,1)
+                self.gps_sample_time = self.get_clock().now() # msg.header.stamp
 
-    def insert_data(self, bit_rate: float, link_quality: float, signal_level: float):
-        """Insert WiFi data with validation and error handling."""
-        if not self.validate_data(bit_rate, link_quality, signal_level):
+                #self.get_logger().info(f"GPS OK: status: {self.gps_status_str()}  service: {self.gps_service_str()}  ({self.latitude}, {self.longitude}, {self.altitude})")
+            else:
+                self.get_logger().info(f"GPS: no data, status: {self.gps_status_str()}  service: {self.gps_service_str()}")
+                self.gps_unavailable()
+
+        except Exception as e:
+            self.get_logger().error(f"Unexpected error in gps_callback: {e}")
+            self.gps_unavailable()
+
+    def timer_callback(self):
+        """Periodic callback to collect and store WiFi data."""
+        if self.current_pose is None:
+            self.get_logger().warn("Current pose not available, skipping data insertion")
             return
 
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            
-            # Check if we already have data for this location
-            cursor.execute("""
-                SELECT id FROM wifi_data 
-                WHERE x = ? AND y = ? 
-                ORDER BY timestamp DESC LIMIT 1
-            """, (self.x, self.y))
-            
-            existing_record = cursor.fetchone()
-            
-            if existing_record:
-                # Update existing record if it's within the last minute
-                cursor.execute("""
-                    UPDATE wifi_data 
-                    SET bit_rate = ?, link_quality = ?, signal_level = ?, timestamp = CURRENT_TIMESTAMP
-                    WHERE id = ?
-                """, (bit_rate, link_quality, signal_level, existing_record[0]))
-                # self.get_logger().info(f"Updated existing record: {existing_record[0]}")
-            else:
-                # Insert new record
-                cursor.execute("""
-                    INSERT INTO wifi_data (x, y, lat, lon, gps_status, gps_service, bit_rate, link_quality, signal_level)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (self.x, self.y, self.latitude, self.longitude, self.gps_status, self.gps_service, bit_rate, link_quality, signal_level))
-                #self.get_logger().info(f"Inserted new record: {self.x}, {self.y}, {self.latitude}, {self.longitude}, {self.gps_status}, {self.gps_service}, {bit_rate}, {link_quality}, {signal_level}")
-            conn.commit()
-            conn.close()
-            
-        except sqlite3.Error as e:
-            self.get_logger().error(f"Error inserting data: {e}")
-            # Try to recover by recreating the table
-            try:
-                self.create_table()
-            except sqlite3.Error as e2:
-                self.get_logger().error(f"Failed to recover from database error: {e2}")
+        if self.gps_sample_time is None or (self.get_clock().now() - self.gps_sample_time).nanoseconds / 1e9 > 2.0:
+            self.get_logger().warning(f"GPS: data too old, status: {self.gps_status_str()}  service: {self.gps_service_str()}")
+            self.gps_unavailable() # last GPS was more than 2 seconds ago, mark it invalid
 
-    def cleanup_old_data(self, max_age_days: int = 30):
-        """Remove data older than specified days."""
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            
-            cursor.execute("""
-                DELETE FROM wifi_data 
-                WHERE timestamp < datetime('now', '-' || ? || ' days')
-            """, (max_age_days,))
-            
-            deleted_count = cursor.rowcount
-            conn.commit()
-            conn.close()
-            
-            if deleted_count > 0:
-                self.get_logger().info(f"Cleaned up {deleted_count} old records")
-                
-        except sqlite3.Error as e:
-            self.get_logger().error(f"Error cleaning up old data: {e}")
+        self.x, self.y = tuple(round(x, self.decimals_to_round_coordinates) for x in self.current_pose) # let's work on a grid defined by decimals_to_round_coordinates
+        bit_rate, link_quality, signal_level = self.wifi_data_fetcher.get_wifi_data()
 
-    def get_wifi_data(self) -> Tuple[Optional[float], Optional[float], Optional[float]]:
-        """Get WiFi data with improved error handling and validation."""
-        try:
-            self.iwconfig_output = subprocess.check_output(["iwconfig", self.wifi_interface]).decode("utf-8")
-
-            #self.get_logger().info(self.iwconfig_output)
-
-            # Extract bit rate
-            bit_rate_match = re.search(r"Bit Rate[:=](?P<bit_rate>\d+\.?\d*) (Mb/s|Gb/s)", self.iwconfig_output)
-            if bit_rate_match:
-                bit_rate = float(bit_rate_match.group("bit_rate"))
-                if bit_rate_match.group(2) == "Gb/s":
-                    bit_rate *= 1000  # Convert Gb/s to Mb/s
-            else:
-                bit_rate = None
-
-            # Extract link quality
-            link_quality_match = re.search(r"Link Quality=(?P<link_quality>\d+/\d+)", self.iwconfig_output)
-            if link_quality_match:
-                link_quality_str = link_quality_match.group("link_quality")
-                link_quality = float(link_quality_str.split('/')[0]) / float(link_quality_str.split('/')[1])
-            else:
-                link_quality = None
-
-            # Extract and validate signal level
-            signal_level_match = re.search(r"Signal level[:=](?P<signal_level>-?\d+) dBm", self.iwconfig_output)
-            if signal_level_match:
-                signal_level = float(signal_level_match.group("signal_level"))
-                # Validate signal level is within expected range
-                if not (self.min_signal_strength <= signal_level <= self.max_signal_strength):
-                    self.get_logger().warn(f"Signal level {signal_level} dBm outside expected range")
-                    signal_level = None
-            else:
-                signal_level = None
-
-            return bit_rate, link_quality, signal_level
-
-        except subprocess.CalledProcessError as e:
-            self.get_logger().warn(f"Could not retrieve WiFi data: {e}")
-            return None, None, None
-        except Exception as e:
-            self.get_logger().error(f"Unexpected error getting WiFi data: {e}")
-            return None, None, None
+        if self.do_publish_metrics:
+            self.publish_wifi_data(bit_rate, link_quality, signal_level)
+        
+        if self.do_publish_overlay:
+            self.publish_wifi_overlay(bit_rate, link_quality, signal_level, self.wifi_data_fetcher.iwconfig_output)
+        
+        if all(v is not None for v in [bit_rate, link_quality, signal_level]):
+            self.database_manager.insert_data(self.x, self.y, self.latitude, self.longitude, self.gps_status, self.gps_service, bit_rate, link_quality, signal_level)
+            self.get_logger().debug(
+                f"X: {self.x}, Y: {self.y}, "
+                f"Bit Rate: {bit_rate} Mb/s, "
+                f"Link Quality: {link_quality:.2f}, "
+                f"Signal Level: {signal_level} dBm"
+            )
+        else:
+            self.get_logger().warn("Could not retrieve all WiFi data, skipping insertion")
+        
+        # Clean up old data once per day
+        # if self.get_clock().now().nanoseconds % (24 * 60 * 60 * 1e9) < self.update_interval * 1e9:
+        #     self.database_manager.cleanup_old_data()
 
     def publish_wifi_data(self, bit_rate, link_quality, signal_level):
         try:
@@ -446,104 +382,6 @@ class WifiDataCollector(Node):
         except Exception as e:
             self.get_logger().error(f"Unexpected error in odom_callback: {e}")
             self.current_pose = None
-
-    def gps_unavailable(self):
-        self.latitude = None
-        self.longitude = None
-        self.altitude = None
-        self.gps_status = -2  # STATUS_UNKNOWN
-        self.gps_service = 0  # SERVICE_UNKNOWN
-        #self.gps_sample_time = None
-
-    def gps_status_str(self) -> str:
-        str = "Unknown"
-
-        match self.gps_status:
-            case -1:
-                str = "No Fix"
-            case 0:
-                str = "Fix"
-            case 1:
-                str = "Fix + Sat Augm"
-            case 2:
-                str = "Fix + Ground Augm"
-
-        return str
-
-    def gps_service_str(self):
-        str = ""
-
-        if self.gps_service & 1:
-            str += "GPS "
-
-        if self.gps_service & 2:
-            str += "GLONASS "
-
-        if self.gps_service & 4:
-            str += "BeiDou "
-
-        if self.gps_service & 8:
-            str += "Galileo "
-
-        return str.rstrip()
-
-    def gps_callback(self, msg):
-        try:
-            # https://github.com/ros2/common_interfaces/blob/rolling/sensor_msgs/msg/NavSatFix.msg
-            # https://github.com/ros2/common_interfaces/blob/rolling/sensor_msgs/msg/NavSatStatus.msg
-
-            self.gps_status = msg.status.status
-            self.gps_service = msg.status.service
-
-            if self.gps_status > 0:
-                # Extract latitude and longitude from the gps data
-                self.latitude = msg.latitude
-                self.longitude = msg.longitude
-                self.altitude = round(msg.altitude,1)
-                self.gps_sample_time = self.get_clock().now() # msg.header.stamp
-
-                #self.get_logger().info(f"GPS OK: status: {self.gps_status_str()}  service: {self.gps_service_str()}  ({self.latitude}, {self.longitude}, {self.altitude})")
-            else:
-                self.get_logger().info(f"GPS: no data, status: {self.gps_status_str()}  service: {self.gps_service_str()}")
-                self.gps_unavailable()
-
-        except Exception as e:
-            self.get_logger().error(f"Unexpected error in gps_callback: {e}")
-            self.gps_unavailable()
-
-    def timer_callback(self):
-        """Periodic callback to collect and store WiFi data."""
-        if self.current_pose is None:
-            self.get_logger().warn("Current pose not available, skipping data insertion")
-            return
-
-        if self.gps_sample_time is None or (self.get_clock().now() - self.gps_sample_time).nanoseconds / 1e9 > 2.0:
-            self.get_logger().warning(f"GPS: data too old, status: {self.gps_status_str()}  service: {self.gps_service_str()}")
-            self.gps_unavailable() # last GPS was more than 2 seconds ago, mark it invalid
-
-        self.x, self.y = tuple(round(x, self.decimals_to_round_coordinates) for x in self.current_pose) # let's work on a grid defined by decimals_to_round_coordinates
-        bit_rate, link_quality, signal_level = self.get_wifi_data()
-
-        if self.do_publish_metrics:
-            self.publish_wifi_data(bit_rate, link_quality, signal_level)
-        
-        if self.do_publish_overlay:
-            self.publish_wifi_overlay(bit_rate, link_quality, signal_level, self.iwconfig_output)
-        
-        if all(v is not None for v in [bit_rate, link_quality, signal_level]):
-            self.insert_data(bit_rate, link_quality, signal_level)
-            self.get_logger().debug(
-                f"X: {self.x}, Y: {self.y}, "
-                f"Bit Rate: {bit_rate} Mb/s, "
-                f"Link Quality: {link_quality:.2f}, "
-                f"Signal Level: {signal_level} dBm"
-            )
-        else:
-            self.get_logger().warn("Could not retrieve all WiFi data, skipping insertion")
-        
-        # Clean up old data once per day
-        # if self.get_clock().now().nanoseconds % (24 * 60 * 60 * 1e9) < self.update_interval * 1e9:
-        #     self.cleanup_old_data()
 
     def wait_for_transform(self, timeout_sec: float = 60.0):
         """Wait for the transform from odom to map to become available."""
