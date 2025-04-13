@@ -30,7 +30,37 @@ MIN_SIGNAL_STRENGTH = -90.0
 DEFAULT_DECIMALS_TO_ROUND = 3
 
 class WifiDataCollector(Node):
+    """
+    A ROS2 node for collecting and logging WiFi data, including bit rate, link quality, and signal level.
+    
+    This node integrates with GPS and odometry data to associate WiFi metrics with spatial coordinates.
+    It also publishes WiFi metrics and overlay messages for visualization in RViz2.
+
+    Features:
+    - Collects WiFi data using `iwconfig`.
+    - Associates WiFi data with GPS and odometry coordinates.
+    - Publishes WiFi metrics and overlay messages.
+    - Dynamically updates parameters at runtime.
+    - Stores WiFi data in an SQLite database.
+
+    Attributes:
+        db_path (str): Path to the SQLite database file.
+        wifi_interface (str): Name of the WiFi interface.
+        min_signal_strength (float): Minimum expected signal strength in dBm.
+        max_signal_strength (float): Maximum expected signal strength in dBm.
+        update_interval (float): Interval for periodic updates in seconds.
+        decimals_to_round_coordinates (int): Number of decimal places to round coordinates.
+        do_publish_metrics (bool): Whether to publish WiFi metrics.
+        do_publish_overlay (bool): Whether to publish WiFi overlay messages.
+    """
+
     def __init__(self):
+        """
+        Initialize the WiFi Data Collector node.
+
+        Loads configuration from a YAML file, initializes parameters, sets up publishers and subscribers,
+        and starts a timer for periodic updates.
+        """
         super().__init__('wifi_logger_node')
 
         # Load configuration from YAML file
@@ -168,11 +198,26 @@ class WifiDataCollector(Node):
         return SetParametersResult(successful=True)
 
     def declare_and_get_param(self, name, default_value):
+        """
+        Declare a parameter and retrieve its value.
+
+        Parameters:
+            name (str): Name of the parameter.
+            default_value: Default value of the parameter.
+
+        Returns:
+            The value of the parameter.
+        """
         self.declare_parameter(name, default_value)
         return self.get_parameter(name).value
 
     def get_wifi_interface(self) -> Optional[str]:
-        """Detect the WiFi interface using multiple methods."""
+        """
+        Detect the WiFi interface using multiple methods.
+
+        Returns:
+            str: The name of the WiFi interface, or None if not found.
+        """
         try:
             # Method 1: Check iwconfig
             output = subprocess.check_output(["iwconfig"]).decode("utf-8")
@@ -267,24 +312,29 @@ class WifiDataCollector(Node):
             self.gps_unavailable()
 
     def timer_callback(self):
-        """Periodic callback to collect and store WiFi data."""
+        """
+        Periodic callback to collect and store WiFi data.
+
+        This method collects WiFi metrics, associates them with GPS and odometry data,
+        publishes the metrics and overlay messages, and stores the data in the database.
+        """
         if self.current_pose is None:
             self.get_logger().warn("Current pose not available, skipping data insertion")
             return
 
         if self.gps_sample_time is None or (self.get_clock().now() - self.gps_sample_time).nanoseconds / 1e9 > 2.0:
             self.get_logger().warning(f"GPS: data too old, status: {self.gps_status_str()}  service: {self.gps_service_str()}")
-            self.gps_unavailable() # last GPS was more than 2 seconds ago, mark it invalid
+            self.gps_unavailable()  # Last GPS was more than 2 seconds ago, mark it invalid
 
-        self.x, self.y = tuple(round(x, self.decimals_to_round_coordinates) for x in self.current_pose) # let's work on a grid defined by decimals_to_round_coordinates
+        self.x, self.y = tuple(round(x, self.decimals_to_round_coordinates) for x in self.current_pose)  # Round coordinates
         bit_rate, link_quality, signal_level = self.wifi_data_fetcher.get_wifi_data()
 
         if self.do_publish_metrics:
             self.publish_wifi_data(bit_rate, link_quality, signal_level)
-        
+
         if self.do_publish_overlay:
             self.publish_wifi_overlay(bit_rate, link_quality, signal_level, self.wifi_data_fetcher.iwconfig_output)
-        
+
         if all(v is not None for v in [bit_rate, link_quality, signal_level]):
             self.database_manager.insert_data(self.x, self.y, self.latitude, self.longitude, self.gps_status, self.gps_service, bit_rate, link_quality, signal_level)
             self.get_logger().debug(
