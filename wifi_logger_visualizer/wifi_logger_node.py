@@ -20,6 +20,8 @@ import pprint
 from rclpy.time import Time
 from rclpy.duration import Duration
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy, QoSDurabilityPolicy
+from rclpy.parameter import Parameter
+from rcl_interfaces.msg import SetParametersResult
 from .database_manager import DatabaseManager
 from .wifi_data_fetcher import WiFiDataFetcher
 
@@ -44,6 +46,15 @@ class WifiDataCollector(Node):
         self.max_signal_strength = config.get('max_signal_strength', MAX_SIGNAL_STRENGTH)
         self.update_interval = config.get('update_interval', 1.0)
         self.decimals_to_round_coordinates = config.get('decimals_to_round_coordinates', DEFAULT_DECIMALS_TO_ROUND)
+
+        # Declare parameters for dynamic updates
+        self.declare_parameter('update_interval', self.update_interval)
+        self.declare_parameter('min_signal_strength', self.min_signal_strength)
+        self.declare_parameter('max_signal_strength', self.max_signal_strength)
+        self.declare_parameter('decimals_to_round_coordinates', self.decimals_to_round_coordinates)
+
+        # Set up parameter callback
+        self.add_on_set_parameters_callback(self.parameter_callback)
 
         # What to publish
         self.do_publish_metrics = config.get('publish_metrics', True)
@@ -130,25 +141,35 @@ class WifiDataCollector(Node):
         
         # Create timer for periodic updates
         self.timer = self.create_timer(self.update_interval, self.timer_callback)
-        
-        # Add parameter change callback
-        self.add_on_set_parameters_callback(self.parameter_callback)
+
+    def parameter_callback(self, params):
+        """
+        Handle dynamic parameter updates.
+
+        Parameters:
+            params (list): List of parameters being updated.
+
+        Returns:
+            SetParametersResult: Indicates whether the parameter update was successful.
+        """
+        for param in params:
+            if param.name == 'update_interval' and param.type_ == Parameter.Type.DOUBLE:
+                self.update_interval = param.value
+                self.get_logger().info(f"Updated 'update_interval' to {self.update_interval}")
+            elif param.name == 'min_signal_strength' and param.type_ == Parameter.Type.DOUBLE:
+                self.min_signal_strength = param.value
+                self.get_logger().info(f"Updated 'min_signal_strength' to {self.min_signal_strength}")
+            elif param.name == 'max_signal_strength' and param.type_ == Parameter.Type.DOUBLE:
+                self.max_signal_strength = param.value
+                self.get_logger().info(f"Updated 'max_signal_strength' to {self.max_signal_strength}")
+            elif param.name == 'decimals_to_round_coordinates' and param.type_ == Parameter.Type.INTEGER:
+                self.decimals_to_round_coordinates = param.value
+                self.get_logger().info(f"Updated 'decimals_to_round_coordinates' to {self.decimals_to_round_coordinates}")
+        return SetParametersResult(successful=True)
 
     def declare_and_get_param(self, name, default_value):
         self.declare_parameter(name, default_value)
         return self.get_parameter(name).value
-
-    def parameter_callback(self, params):
-        """Handle parameter updates."""
-        for param in params:
-            if param.name == 'update_interval':
-                self.update_interval = param.value
-                self.timer.timer_period_ns = int(self.update_interval * 1e9)
-            elif param.name == 'max_signal_strength':
-                self.max_signal_strength = param.value
-            elif param.name == 'min_signal_strength':
-                self.min_signal_strength = param.value
-        return True
 
     def get_wifi_interface(self) -> Optional[str]:
         """Detect the WiFi interface using multiple methods."""
