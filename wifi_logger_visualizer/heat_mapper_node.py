@@ -13,11 +13,29 @@ from std_msgs.msg import ColorRGBA
 from rclpy.time import Time
 from rclpy.duration import Duration
 import copy
+import os
+from ament_index_python.packages import get_package_share_directory
+import xml.etree.ElementTree as ET
+from datetime import datetime
 
 class HeatMapperNode(Node):
     def __init__(self):
         super().__init__('heat_mapper_node')
         self.get_logger().info('Heat Mapper Node has been started.')
+
+        # Log source file name, version, and compile time
+        source_file = os.path.basename(__file__)
+        package_xml_path = os.path.join(get_package_share_directory('wifi_logger_visualizer'), 'package.xml')
+        try:
+            tree = ET.parse(package_xml_path)
+            root = tree.getroot()
+            version = root.find('version').text
+        except Exception as e:
+            version = "unknown"
+            self.get_logger().warn(f"Could not retrieve version from package.xml: {e}")
+
+        compile_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.get_logger().info(f"Source File: {source_file}, Version: {version}, Compile Time: {compile_time}")
 
         # Declare parameters
         self.declare_parameter('standalone', False)
