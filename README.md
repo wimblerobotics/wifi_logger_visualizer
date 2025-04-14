@@ -15,7 +15,7 @@ this this version.**
 - **RViz2 Visualization**: Publishes overlay messages for real-time visualization of WiFi metrics in RViz2.
 - **Standalone Chart**: Generates a standalone chart for visualizing WiFi metrics.
 - **Dynamic Parameter Updates**: Allows runtime updates to parameters such as update intervals and signal strength thresholds.
-- **Configurable via YAML**: All parameters are configurable through a YAML file for ease of use.
+- **Configurable via YAML**: All parameters are configurable through a YAML file for ease of use as well as via the command line.
 
 ---
 
@@ -26,16 +26,15 @@ this this version.**
 
 2. **SQLite3**: Ensure SQLite3 is installed on your system:
    ```bash
-   sudo apt install sqlite3 libsqlite3-dev
-   ```
-
-   You can check if SQLite3 is installed by running:
-   ```bash
    sqlite3 --version
    ```
 
-   If not installed, you can install it using the command above.
-3. **Python Dependencies**: The package uses Python 3 and requires the following libraries:
+   If not installed, you can install it using the command.
+```bash
+   sudo apt install sqlite3 libsqlite3-dev
+   ```
+
+1. **Python Dependencies**: The package uses Python 3 and requires the following libraries:
    - `matplotlib`
    - `numpy`
    - `pyyaml`
@@ -45,9 +44,9 @@ this this version.**
    
    Install missing Python dependencies using:
    ```bash
-   pip install numpy pyyaml matplotlib seaborn scipy
+   pip3 install numpy pyyaml matplotlib seaborn scipy
    ```
-4. **WiFi Tools**: Ensure `iwconfig` is installed on your system:
+2. **WiFi Tools**: Ensure `iwconfig` is installed on your system:
    ```bash
    sudo apt install wireless-tools
    ```
@@ -55,7 +54,8 @@ this this version.**
 ---
 
 ### **Installation Steps**
-1. Clone the repository into your ROS2 workspace:
+1. Clone the repository into your ROS2 workspace.
+2. The following assumes you are use a directory in your home directory called **ros2_ws**. Change the following if you use a different workspace directory.
    ```bash
    cd ~/ros2_ws/src
    git clone <repository-url> wimble_wifi_logger_visualizer
@@ -64,13 +64,13 @@ this this version.**
 
    ```
 
-2. Build the package:
+3. Build the package:
    ```bash
    cd ~/ros2_ws
    colcon build --symlink-install
    ```
 
-3. Source the workspace:
+4. Source the workspace:
    ```bash
    source ~/ros2_ws/install/setup.bash
    ```
@@ -80,19 +80,25 @@ this this version.**
 ## **Usage**
 
 ### **Capturing Wifi Data**
+
+To run the **wifi_logger_node.py**, you can use the provided launch file:
+```bash
+ros2 launch wifi_logger_visualizer wifi_logger.launch.py
+```
+
 The Wifi Logger node uses the **iwconfig** application to capture
-The bit rante, link quality and signal strength from the onboard wifi device.
+The bit rate, link quality and signal strength from the onboard wifi device.
 It requires odometry data to be published so that it can associate a location with
 the captured wifi data.
 If GPS location data is also being published, it will capture the GPS location as well.
 
-The data is always written to an SQLite database. You can also specify that the data
+The data is always written to the SQLite database. You can also specify that the data
 should be published as one or two ROS topics as well.
 
 #### **Configuration**
-Usually, you edit the **config.yaml** file, located in the **config/wifi_logger_config.yaml**
+You can edit the **config.yaml** file, located in the **config/wifi_logger_config.yaml**
 file before building this package to set the default parameters for this package.
-But, you can override the configuration parameters as needed on the command line.
+You can also override the configuration parameters as needed on the command line.
 This module specifically uses the following parameters:
 
 * **db_path** (default: 'wifi_data.db')  
@@ -100,29 +106,59 @@ This module specifically uses the following parameters:
   If it does not exist, it will be created.
   If an abolute pathname is not provided, it will be used as a relative pathname.
 * **decimals_round_coordinates** (defaule: 3)  
+  Round all pose **x** and **y** values to this many places to the right of the decimal point.
   When entries are about to be put into the database, the database is checked to see if
   there is already any entry for the current odometry pose. If so, the current entry is
   replaced. Otherwise a new entry is created. As odometry can create poses with very
-  small differences in locations, such as **x=0.1234567** vs **x=0.1234568**, sometimes induced
-  by sensor noise, this parameter allows you to put pose values into more useful buckets.
+  small differences in locations, such as **x=0.1234567** vs **x=0.1234568**, sometimes because
+  of sensor noise, this parameter allows you to put pose values into more useful buckets.
   A value of **3**, for instance, would round both of those **x** coordinates to a value
   of 0.123.
 * **max_signal_level** (default: -20.0)  
   Maximum expected signal level in dBm. Values higher than this will be rejected.
 * **min_signal_level** (default -100.0)  
   Minimum expected signal level in dBm. Values lower than this will be rejected.
-* **publish_metrics** (default: 'true')  
-  If **true**, publish 
-* publish_overlay
-* **update_interval**
-  How often to publish the wifi metrics and wifi  overlay topics and insert new data into the database. Pay attention to this as the speed of your robot movement and this parameter jointly combine to determine the possible resolution of your data in the database.
-  For instance, if you robot is moving 1 meter persecond and the update interval is 1 second,
-  then the entries in the database are likely to be about a meter apart. 
-  If you wanted wifi readings in the database to be about 10 centimeters aparts,
-  you'd have to change this **update_interval** to be 10 times a second.
-* **wifi_interface**  
-  Specify the WiFi device name. E.g., **wlp9s0**. If left blank, the program will
-  attempt to find device name automatically.
+* **publish_metrics** (default: true)  
+  If **true**, publish the raw WiFi bit rate, link quality and signal level data as an array of three
+  float values to the **/wifi/metrics** topic.
+  ```bash
+  ros2 topic echo /wifi/metrics 
+  layout:
+    dim: []
+    data_offset: 0
+  data:
+  - 960.7000122070312
+  - 1.0
+  - -31.0
+  ```
+* **publish_overlay** (default: true)  
+  If **true**, publish data to be visualized as a text overlay in RViz2 to the
+  **/wifi/overlay** topic.
+  ```bash
+  ros2 topic echo /wifi/overlay 
+  action: 0
+  width: 1200
+  height: 240
+  horizontal_distance: 10
+  vertical_distance: 10
+  horizontal_alignment: 0
+  vertical_alignment: 3
+  bg_color:
+    r: 0.0
+    g: 0.0
+    b: 0.0
+    a: 0.05000000074505806
+  line_width: 0
+  text_size: 12.0
+  font: DejaVu Sans Mono
+  fg_color:
+    r: 0.800000011920929
+    g: 0.800000011920929
+    b: 0.30000001192092896
+    a: 0.800000011920929
+  text: "<pre>(8.81,2.59)  Bit Rate: 1080.6  Quality: 1.0  db: -31.0\n(None, None, None)  Unknown  \nwlp9s0    IEEE 802.11  ESSID:\"livingro..."
+
+  ```
 
 The following parameters can be changed dynamically using, e.g., the **rqt** program:
 * decimals_to_round_coordinates
@@ -131,19 +167,39 @@ The following parameters can be changed dynamically using, e.g., the **rqt** pro
 * update_interval
 
 #### **Additional Configuration for Publishing the Overlay Topic**
-        self.ov_horizontal_alignment = config.get('ov_horizontal_alignment', 0)
-        self.ov_vertical_alignment = config.get('ov_vertical_alignment', 3)
-        self.ov_horizontal_distance = config.get('ov_horizontal_distance', 10)
-        self.ov_vertical_distance = config.get('ov_vertical_distance', 10)
-        self.ov_width_factor = config.get('ov_width_factor', 1.0)
-        self.ov_height_factor = config.get('ov_height_factor', 1.0)
-        self.ov_font = config.get('ov_font', "DejaVu Sans Mono")
-        self.ov_font_size = config.get('ov_font_size', 12.0)
-        self.ov_font_color = config.get('ov_font_color', "0.8 0.8 0.3 0.8")
-        self.ov_bg_color = config.get('ov_bg_color', "0.0 0.0 0.0 0.05")
-        self.ov_do_short = config.get('ov_do_short', True)
-        self.ov_do_full = config.get('ov_do_full', True)
+If the configuration parameter **publish_overlay** is true, there are
+extra configuration parameters you can use to customize how the text
+is presented in the overlay.
+* **ov_horizontal_alignment** (default: 0)  
+  0 => left, 1 => right, 2 => center.
+* **ov_vertical_alignment** (default: 3)
+  2 => center, 3 => top, 4 => bottom  
+* **ov_horizontal_distance** (default: 10)  
+  Pixel distance of overlay from left edge of RViz2 window.
+* **ov_vertical_distance** (default: 10)  
+  Pixel distance of overlay from top edge of RViz2 window
+* **ov_width_factor** (default: 1.0)  
+  Scaling factor for the width of the overlay.
+* **ov_height_factor** (default: 1.0)  
+  Scaling factor for the height of the overlay.
+* **ov_font** (default: 'DejaVu Sans Mono')  
+  Name of the system font to be used.
+* **ov_font_size** (default: 12.0)  
+  Size of the system font to be used.
+* **ov_font_color** (default: '0.8 0.8 0.3 0.8')  
+  Color of the system font to be used (red, gree, blue, alpha).
+* **ov_bg_color** (default: "0.0 0.0 0.0 0.05")  
+  Background olor of the for the overlay to be used (red, gree, blue, alpha).
+* **ov_do_short** (default: True)  
+  If **True**, begin the overlay with the text with the **x** and **y** values
+  enclosed in parenthesis, followed by the bit rate, link quality and signal levels.
+  On a second line, show the GPS lattitude, longitude and altitude in parenthesis, followed the GPS status.
 
+* **ov_do_full** (default: True)  
+  If **True**, add to the text overlay the raw text result from the **iwconfig** result.
+
+An example of the overlay, with missing GPS data, is:
+![Sample Wifi Text Overlay](media/SampleTextOverlay.png)
   
 
 ### **Displaying Wifi Data as a Topological Map**
