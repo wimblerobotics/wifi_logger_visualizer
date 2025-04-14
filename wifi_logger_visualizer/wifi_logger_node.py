@@ -39,8 +39,8 @@ from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy, QoSDur
 from rclpy.parameter import Parameter
 from rcl_interfaces.msg import SetParametersResult
 
-MAX_SIGNAL_STRENGTH = -30.0
-MIN_SIGNAL_STRENGTH = -90.0
+MAX_SIGNAL_LEVEL = -20.0
+MIN_SIGNAL_LEVEL = -100.0
 DEFAULT_DECIMALS_TO_ROUND = 3
 
 class WifiDataCollector(Node):
@@ -60,8 +60,8 @@ class WifiDataCollector(Node):
     Attributes:
         db_path (str): Path to the SQLite database file.
         wifi_interface (str): Name of the WiFi interface.
-        min_signal_strength (float): Minimum expected signal strength in dBm.
-        max_signal_strength (float): Maximum expected signal strength in dBm.
+        min_signal_level (float): Minimum expected signal level in dBm.
+        max_signal_level (float): Maximum expected signal level in dBm.
         update_interval (float): Interval for periodic updates in seconds.
         decimals_to_round_coordinates (int): Number of decimal places to round coordinates.
         do_publish_metrics (bool): Whether to publish WiFi metrics.
@@ -94,15 +94,15 @@ class WifiDataCollector(Node):
         # Initialize parameters from the configuration file
         self.db_path = config.get('db_path', os.path.join(os.getcwd(), 'wifi_data.db'))
         self.wifi_interface = config.get('wifi_interface', '')
-        self.min_signal_strength = config.get('min_signal_strength', MIN_SIGNAL_STRENGTH)
-        self.max_signal_strength = config.get('max_signal_strength', MAX_SIGNAL_STRENGTH)
+        self.min_signal_level = config.get('min_signal_level', MIN_SIGNAL_LEVEL)
+        self.max_signal_level = config.get('max_signal_level', MAX_SIGNAL_LEVEL)
         self.update_interval = config.get('update_interval', 1.0)
         self.decimals_to_round_coordinates = config.get('decimals_to_round_coordinates', DEFAULT_DECIMALS_TO_ROUND)
 
         # Declare parameters for dynamic updates
         self.declare_parameter('update_interval', self.update_interval)
-        self.declare_parameter('min_signal_strength', self.min_signal_strength)
-        self.declare_parameter('max_signal_strength', self.max_signal_strength)
+        self.declare_parameter('min_signal_level', self.min_signal_level)
+        self.declare_parameter('max_signal_level', self.max_signal_level)
         self.declare_parameter('decimals_to_round_coordinates', self.decimals_to_round_coordinates)
 
         # Set up parameter callback
@@ -128,7 +128,7 @@ class WifiDataCollector(Node):
 
         # Initialize helpers
         self.database_manager = DatabaseManager(self.db_path)
-        self.wifi_data_fetcher = WiFiDataFetcher(self.wifi_interface, self.min_signal_strength, self.max_signal_strength)
+        self.wifi_data_fetcher = WiFiDataFetcher(self.wifi_interface, self.min_signal_level, self.max_signal_level)
 
         # Other initialization...
 
@@ -149,6 +149,10 @@ class WifiDataCollector(Node):
             self.get_logger().info(f"Using WiFi interface: {self.wifi_interface}")
         else:
             self.get_logger().info(f"Using WiFi interface: {self.wifi_interface}")
+
+        # Initialize the tf2 buffer and transform listener
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
 
         # Create odometry subscription with optimized QoS settings
         qos = QoSProfile(
@@ -178,13 +182,19 @@ class WifiDataCollector(Node):
                 '/wifi/metrics',
                 10
             )
-
+            self.get_logger().info("Publishing WiFi metrics")
+        else:
+            self.get_logger().info("Not publishing WiFi metrics")
+            
         if self.do_publish_overlay:
             self.overlay_publisher = self.create_publisher(
                 OverlayText,
                 '/wifi/overlay',
                 10
             )
+            self.get_logger().info("Publishing WiFi overlay")
+        else:
+            self.get_logger().info("Not publishing WiFi overlay")
 
         self.current_pose = None
         self.transform_available = False
@@ -208,12 +218,12 @@ class WifiDataCollector(Node):
             if param.name == 'update_interval' and param.type_ == Parameter.Type.DOUBLE:
                 self.update_interval = param.value
                 self.get_logger().info(f"Updated 'update_interval' to {self.update_interval}")
-            elif param.name == 'min_signal_strength' and param.type_ == Parameter.Type.DOUBLE:
-                self.min_signal_strength = param.value
-                self.get_logger().info(f"Updated 'min_signal_strength' to {self.min_signal_strength}")
-            elif param.name == 'max_signal_strength' and param.type_ == Parameter.Type.DOUBLE:
-                self.max_signal_strength = param.value
-                self.get_logger().info(f"Updated 'max_signal_strength' to {self.max_signal_strength}")
+            elif param.name == 'min_signal_level' and param.type_ == Parameter.Type.DOUBLE:
+                self.min_signal_level = param.value
+                self.get_logger().info(f"Updated 'min_signal_level' to {self.min_signal_level}")
+            elif param.name == 'max_signal_level' and param.type_ == Parameter.Type.DOUBLE:
+                self.max_signal_level = param.value
+                self.get_logger().info(f"Updated 'max_signal_level' to {self.max_signal_level}")
             elif param.name == 'decimals_to_round_coordinates' and param.type_ == Parameter.Type.INTEGER:
                 self.decimals_to_round_coordinates = param.value
                 self.get_logger().info(f"Updated 'decimals_to_round_coordinates' to {self.decimals_to_round_coordinates}")
@@ -321,11 +331,11 @@ class WifiDataCollector(Node):
                 # Extract latitude and longitude from the gps data
                 self.latitude = msg.latitude
                 self.longitude = msg.longitude
-                self.altitude = round(msg.altitude,1)
-                self.gps_sample_time = self.get_clock().now() # msg.header.stamp
+                self.altitude = round(msg.altitude, 1)
+                self.gps_sample_time = self.get_clock().now()  # msg.header.stamp
 
-                #self.get_logger().info(f"GPS OK: status: {self.gps_status_str()}  service: {self.gps_service_str()}  ({self.latitude}, {self.longitude}, {self.altitude})")
-            else:
+                # self.get_logger().info(f"GPS OK: status: {self.gps_status_str()}  service: {self.gps_service_str()}  ({self.latitude}, {self.longitude}, {self.altitude})")
+            elif self.gps_sample_time is not None:
                 self.get_logger().info(f"GPS: no data, status: {self.gps_status_str()}  service: {self.gps_service_str()}")
                 self.gps_unavailable()
 
@@ -344,9 +354,11 @@ class WifiDataCollector(Node):
             self.get_logger().warn("Current pose not available, skipping data insertion")
             return
 
-        if self.gps_sample_time is None or (self.get_clock().now() - self.gps_sample_time).nanoseconds / 1e9 > 2.0:
+        if self.gps_sample_time is None:
+            self.gps_unavailable()  # Mark GPS as unavailable without printing an error
+        elif (self.get_clock().now() - self.gps_sample_time).nanoseconds / 1e9 > 2.0:
             self.get_logger().warning(f"GPS: data too old, status: {self.gps_status_str()}  service: {self.gps_service_str()}")
-            self.gps_unavailable()  # Last GPS was more than 2 seconds ago, mark it invalid
+            self.gps_unavailable()
 
         self.x, self.y = tuple(round(x, self.decimals_to_round_coordinates) for x in self.current_pose)  # Round coordinates
         bit_rate, link_quality, signal_level = self.wifi_data_fetcher.get_wifi_data()
@@ -368,10 +380,6 @@ class WifiDataCollector(Node):
         else:
             self.get_logger().warn("Could not retrieve all WiFi data, skipping insertion")
         
-        # Clean up old data once per day
-        # if self.get_clock().now().nanoseconds % (24 * 60 * 60 * 1e9) < self.update_interval * 1e9:
-        #     self.database_manager.cleanup_old_data()
-
     def publish_wifi_data(self, bit_rate, link_quality, signal_level):
         try:
             msg = Float32MultiArray()

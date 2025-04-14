@@ -8,22 +8,22 @@ class WiFiDataFetcher:
     
     Attributes:
         wifi_interface (str): Name of the WiFi interface.
-        min_signal_strength (float): Minimum expected signal strength in dBm.
-        max_signal_strength (float): Maximum expected signal strength in dBm.
+        min_signal_level (float): Minimum expected signal level in dBm.
+        max_signal_level (float): Maximum expected signal level in dBm.
     """
     
-    def __init__(self, wifi_interface: str, min_signal_strength: float, max_signal_strength: float):
+    def __init__(self, wifi_interface: str, min_signal_level: float, max_signal_level: float):
         """
         Initialize the WiFi data fetcher.
         
         Args:
             wifi_interface (str): Name of the WiFi interface.
-            min_signal_strength (float): Minimum expected signal strength in dBm.
-            max_signal_strength (float): Maximum expected signal strength in dBm.
+            min_signal_level (float): Minimum expected signal level in dBm.
+            max_signal_level (float): Maximum expected signal level in dBm.
         """
         self.wifi_interface = wifi_interface
-        self.min_signal_strength = min_signal_strength
-        self.max_signal_strength = max_signal_strength
+        self.min_signal_level = min_signal_level
+        self.max_signal_level = max_signal_level
         self.iwconfig_output = ""
         
     def get_wifi_data(self) -> Tuple[Optional[float], Optional[float], Optional[float]]:
@@ -45,9 +45,19 @@ class WiFiDataFetcher:
             # Store the raw output for later use (e.g., for display)
             self.iwconfig_output = output
             
+            # Capture the WiFi interface name and store it in self.wifi_interface
+            interface_match = re.search(r"^(\S+)\s+IEEE", output, re.MULTILINE)
+            if interface_match:
+                self.wifi_interface = interface_match.group(1)
+            
             # Extract bit rate
-            bit_rate_match = re.search(r"Bit Rate[=:]\s*(\d+\.?\d*)\s*Mb/s", output)
-            bit_rate = float(bit_rate_match.group(1)) if bit_rate_match else None
+            bit_rate_match = re.search(r"Bit Rate[=:]\s*(\d+\.?\d*)\s*(Gb/s|Mb/s)", output)
+            if bit_rate_match:
+                bit_rate = float(bit_rate_match.group(1))
+                if bit_rate_match.group(2) == "Gb/s":
+                    bit_rate *= 1000  # Convert Gb/s to Mb/s
+            else:
+                bit_rate = None
             
             # Extract link quality
             link_quality_match = re.search(r"Link Quality[=:]\s*(\d+)/(\d+)", output)
@@ -61,7 +71,7 @@ class WiFiDataFetcher:
             if signal_level_match:
                 signal_level = float(signal_level_match.group(1))
                 # Validate signal level
-                if signal_level < self.min_signal_strength or signal_level > self.max_signal_strength:
+                if signal_level < self.min_signal_level or signal_level > self.max_signal_level:
                     print(f"Warning: Signal level {signal_level} dBm is outside expected range")
             else:
                 signal_level = None

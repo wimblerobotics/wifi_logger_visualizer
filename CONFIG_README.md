@@ -6,8 +6,8 @@ This document describes the parameters available in the `wifi_logger_config.yaml
 
 - **`db_path`**: Path to the SQLite database file. Default: `wifi_data.db`.
 - **`wifi_interface`**: Name of the WiFi interface. Leave empty for auto-detection.
-- **`min_signal_strength`**: Minimum expected signal strength in dBm. Default: `-90.0`. Values lower than this will be rejected.
-- **`max_signal_strength`**: Maximum expected signal strength in dBm. Default: `-30.0`. Values higher than this will be rejected.
+- **`min_signal_level`**: Minimum expected signal level in dBm. Default: `-100.0`. Values lower than this will be rejected.
+- **`max_signal_level`**: Maximum expected signal level in dBm. Default: `-20.0`. Values higher than this will be rejected.
 - **`update_interval`**: Update interval in seconds. Default: `1.0`.
 - **`decimals_to_round_coordinates`**: Number of decimal places to round x and y coordinates. Default: `3`. E.g., a coordinate value of *123.456789* will be rounded to *123.456*.
 

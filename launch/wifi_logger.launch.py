@@ -14,6 +14,7 @@ def generate_launch_description():
             executable='wifi_logger_node.py',
             name='wifi_logger',
             parameters=[config_filepath],
+            # arguments=['--ros-args', '--log-level', 'DEBUG'],
             output='screen'
         )
     ])

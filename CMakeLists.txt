@@ -24,8 +24,8 @@ install(PROGRAMS
 
 # Install launch files and config
 install(DIRECTORY
-  launch
   config
+  launch
   DESTINATION share/${PROJECT_NAME}
 )
 

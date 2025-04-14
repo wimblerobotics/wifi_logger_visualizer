@@ -19,10 +19,9 @@ class DatabaseManager:
             self.conn = sqlite3.connect(self.db_path)
             self.cursor = self.conn.cursor()
             
-            # Create table if it doesn't exist
+            # Create table with a unique constraint on x and y
             self.cursor.execute('''
                 CREATE TABLE IF NOT EXISTS wifi_data (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
                     timestamp TEXT NOT NULL,
                     x REAL,
                     y REAL,
@@ -32,7 +31,8 @@ class DatabaseManager:
                     gps_service INTEGER,
                     bit_rate REAL,
                     link_quality REAL,
-                    signal_level REAL
+                    signal_level REAL,
+                    PRIMARY KEY (x, y)
                 )
             ''')
             self.conn.commit()
@@ -45,7 +45,7 @@ class DatabaseManager:
                 self.cursor = None
 
     def insert_data(self, x, y, latitude, longitude, gps_status, gps_service, bit_rate, link_quality, signal_level):
-        """Insert WiFi data into the database."""
+        """Insert or update WiFi data in the database."""
         if not self.conn:
             self.setup_database()
             
@@ -54,36 +54,38 @@ class DatabaseManager:
             return False
             
         try:
-            timestamp = datetime.now().isoformat()
+            # Check if the x, y entry already exists in the database
             self.cursor.execute(
-                '''
-                INSERT INTO wifi_data (timestamp, x, y, latitude, longitude, gps_status, gps_service, bit_rate, link_quality, signal_level)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''',
-                (timestamp, x, y, latitude, longitude, gps_status, gps_service, bit_rate, link_quality, signal_level)
+                'SELECT x, y FROM wifi_data WHERE x = ? AND y = ?', (x, y)
             )
+            existing_entry = self.cursor.fetchone()
+
+            if existing_entry:
+                # Update the existing entry with new values
+                self.cursor.execute(
+                    '''
+                    UPDATE wifi_data
+                    SET timestamp = ?, latitude = ?, longitude = ?, gps_status = ?, gps_service = ?,
+                        bit_rate = ?, link_quality = ?, signal_level = ?
+                    WHERE x = ? AND y = ?
+                    ''',
+                    (datetime.now().isoformat(), latitude, longitude, gps_status, gps_service,
+                     bit_rate, link_quality, signal_level, x, y)
+                )
+            else:
+                # Insert a new entry if x, y does not exist
+                self.cursor.execute(
+                    '''
+                    INSERT INTO wifi_data (timestamp, x, y, latitude, longitude, gps_status, gps_service, bit_rate, link_quality, signal_level)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''',
+                    (datetime.now().isoformat(), x, y, latitude, longitude, gps_status, gps_service, bit_rate, link_quality, signal_level)
+                )
+
             self.conn.commit()
             return True
         except sqlite3.Error as e:
             print(f"Error inserting data: {e}")
-            return False
-
-    def cleanup_old_data(self, days=30):
-        """Remove data older than the specified number of days."""
-        if not self.conn:
-            self.setup_database()
-            
-        if not self.conn:
-            print("Could not connect to database")
-            return False
-            
-        try:
-            cutoff_date = (datetime.now() - timedelta(days=days)).isoformat()
-            self.cursor.execute("DELETE FROM wifi_data WHERE timestamp < ?", (cutoff_date,))
-            self.conn.commit()
-            return True
-        except sqlite3.Error as e:
-            print(f"Error cleaning up data: {e}")
             return False
 
     def close(self):

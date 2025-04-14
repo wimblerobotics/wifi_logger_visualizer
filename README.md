@@ -2,6 +2,10 @@
 
 This package provides a ROS2 node for collecting, logging, and visualizing WiFi metrics such as bit rate, link quality, and signal strength. It integrates with GPS and odometry data to associate WiFi metrics with spatial coordinates and provides visualization capabilities both in RViz2 and as a standalone chart.
 
+**NOTE for user os previous versions of this package. The database schema has changed for
+version 1.2 of this package. Please delete old databases in order to ensure compatability
+this this version.**
+
 ---
 
 ## **Features**
@@ -75,6 +79,77 @@ This package provides a ROS2 node for collecting, logging, and visualizing WiFi 
 
 ## **Usage**
 
+### **Capturing Wifi Data**
+The Wifi Logger node uses the **iwconfig** application to capture
+The bit rante, link quality and signal strength from the onboard wifi device.
+It requires odometry data to be published so that it can associate a location with
+the captured wifi data.
+If GPS location data is also being published, it will capture the GPS location as well.
+
+The data is always written to an SQLite database. You can also specify that the data
+should be published as one or two ROS topics as well.
+
+#### **Configuration**
+Usually, you edit the **config.yaml** file, located in the **config/wifi_logger_config.yaml**
+file before building this package to set the default parameters for this package.
+But, you can override the configuration parameters as needed on the command line.
+This module specifically uses the following parameters:
+
+* **db_path** (default: 'wifi_data.db')  
+  The location of the SQLite datbase.
+  If it does not exist, it will be created.
+  If an abolute pathname is not provided, it will be used as a relative pathname.
+* **decimals_round_coordinates** (defaule: 3)  
+  When entries are about to be put into the database, the database is checked to see if
+  there is already any entry for the current odometry pose. If so, the current entry is
+  replaced. Otherwise a new entry is created. As odometry can create poses with very
+  small differences in locations, such as **x=0.1234567** vs **x=0.1234568**, sometimes induced
+  by sensor noise, this parameter allows you to put pose values into more useful buckets.
+  A value of **3**, for instance, would round both of those **x** coordinates to a value
+  of 0.123.
+* **max_signal_level** (default: -20.0)  
+  Maximum expected signal level in dBm. Values higher than this will be rejected.
+* **min_signal_level** (default -100.0)  
+  Minimum expected signal level in dBm. Values lower than this will be rejected.
+* **publish_metrics** (default: 'true')  
+  If **true**, publish 
+* publish_overlay
+* **update_interval**
+  How often to publish the wifi metrics and wifi  overlay topics and insert new data into the database. Pay attention to this as the speed of your robot movement and this parameter jointly combine to determine the possible resolution of your data in the database.
+  For instance, if you robot is moving 1 meter persecond and the update interval is 1 second,
+  then the entries in the database are likely to be about a meter apart. 
+  If you wanted wifi readings in the database to be about 10 centimeters aparts,
+  you'd have to change this **update_interval** to be 10 times a second.
+* **wifi_interface**  
+  Specify the WiFi device name. E.g., **wlp9s0**. If left blank, the program will
+  attempt to find device name automatically.
+
+The following parameters can be changed dynamically using, e.g., the **rqt** program:
+* decimals_to_round_coordinates
+* max_signal_level
+* min_signal_level
+* update_interval
+
+#### **Additional Configuration for Publishing the Overlay Topic**
+        self.ov_horizontal_alignment = config.get('ov_horizontal_alignment', 0)
+        self.ov_vertical_alignment = config.get('ov_vertical_alignment', 3)
+        self.ov_horizontal_distance = config.get('ov_horizontal_distance', 10)
+        self.ov_vertical_distance = config.get('ov_vertical_distance', 10)
+        self.ov_width_factor = config.get('ov_width_factor', 1.0)
+        self.ov_height_factor = config.get('ov_height_factor', 1.0)
+        self.ov_font = config.get('ov_font', "DejaVu Sans Mono")
+        self.ov_font_size = config.get('ov_font_size', 12.0)
+        self.ov_font_color = config.get('ov_font_color', "0.8 0.8 0.3 0.8")
+        self.ov_bg_color = config.get('ov_bg_color', "0.0 0.0 0.0 0.05")
+        self.ov_do_short = config.get('ov_do_short', True)
+        self.ov_do_full = config.get('ov_do_full', True)
+
+  
+
+### **Displaying Wifi Data as a Topological Map**
+
+### **Displaying Wifi Data as a Heat map**
+
 ### **Launching the Wifi Loggin Node**
 To start the WiFi logger node, use the provided launch file:
 ```bash
@@ -82,24 +157,11 @@ ros2 launch wifi_logger_visualizer wifi_logger.launch.py
 ```
 
 ### **Configuration**
-The node is configured using a YAML file located in the `config` directory:
-```yaml
-db_path: "/path/to/wifi_data.db"
-wifi_interface: ""  # Leave empty for auto-detection
-min_signal_strength: -90.0
-max_signal_strength: -30.0
-update_interval: 1.0
-decimals_to_round_coordinates: 3
-publish_metrics: true
-publish_overlay: true
-```
+The node is configured using a YAML file located in the `config` directory.
 
 You can modify this file to adjust parameters such as the database path, WiFi interface, and visualization settings.
 
-### **Topics**
-The node publishes the following topics:
-- **`/wifi/metrics`**: Publishes WiFi metrics as a `Float32MultiArray` message.
-- **`/wifi/overlay`**: Publishes overlay messages for RViz2 visualization.
+See the [Configuration Guide](CONFIG_README.md) for a complete description of the file.
 
 ### **Database**
 WiFi data is stored in an SQLite database. The default database file is `wifi_data.db` in the package directory. You can change the path in the YAML configuration file.
