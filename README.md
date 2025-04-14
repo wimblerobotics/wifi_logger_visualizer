@@ -1,6 +1,6 @@
 # WiFi Logger and Visualizer for ROS2
 
-This package provides a ROS2 node for collecting, logging, and visualizing WiFi metrics such as bit rate, link quality, and signal strength. It integrates with GPS and odometry data to associate WiFi metrics with spatial coordinates and provides visualization capabilities in RViz2.
+This package provides a ROS2 node for collecting, logging, and visualizing WiFi metrics such as bit rate, link quality, and signal strength. It integrates with GPS and odometry data to associate WiFi metrics with spatial coordinates and provides visualization capabilities both in RViz2 and as a standalone chart.
 
 ---
 
@@ -9,6 +9,7 @@ This package provides a ROS2 node for collecting, logging, and visualizing WiFi 
 - **GPS and Odometry Integration**: Associates WiFi metrics with GPS and odometry data for spatial context.
 - **Data Logging**: Stores WiFi data in an SQLite database for later analysis.
 - **RViz2 Visualization**: Publishes overlay messages for real-time visualization of WiFi metrics in RViz2.
+- **Standalone Chart**: Generates a standalone chart for visualizing WiFi metrics.
 - **Dynamic Parameter Updates**: Allows runtime updates to parameters such as update intervals and signal strength thresholds.
 - **Configurable via YAML**: All parameters are configurable through a YAML file for ease of use.
 
@@ -18,22 +19,30 @@ This package provides a ROS2 node for collecting, logging, and visualizing WiFi 
 
 ### **Prerequisites**
 1. **ROS2 (Jazzy or Later)**: Ensure ROS2 Jazzy or a later version is installed on your system. Follow the [official ROS2 installation guide](https://docs.ros.org/en/jazzy/Installation.html).
-2. **Python Dependencies**: The package uses Python 3 and requires the following libraries:
+
+2. **SQLite3**: Ensure SQLite3 is installed on your system:
+   ```bash
+   sudo apt install sqlite3 libsqlite3-dev
+   ```
+
+   You can check if SQLite3 is installed by running:
+   ```bash
+   sqlite3 --version
+   ```
+
+   If not installed, you can install it using the command above.
+3. **Python Dependencies**: The package uses Python 3 and requires the following libraries:
+   - `matplotlib`
    - `numpy`
    - `pyyaml`
+   - `seaborn`
+   - `scipi`
    - `sqlite3`
-   - ROS2 Python libraries (e.g., `rclpy`, `nav_msgs`, `sensor_msgs`).
-
-   Install missing dependencies using:
+   
+   Install missing Python dependencies using:
    ```bash
-   pip install numpy pyyaml
+   pip install numpy pyyaml matplotlib seaborn scipy
    ```
-
-3. **RViz2 Plugins**: The package uses the `rviz_2d_overlay_plugins` for visualization. Install it using:
-   ```bash
-   sudo apt install ros-jazzy-rviz-2d-overlay-plugins
-   ```
-
 4. **WiFi Tools**: Ensure `iwconfig` is installed on your system:
    ```bash
    sudo apt install wireless-tools
@@ -46,12 +55,15 @@ This package provides a ROS2 node for collecting, logging, and visualizing WiFi 
    ```bash
    cd ~/ros2_ws/src
    git clone <repository-url> wimble_wifi_logger_visualizer
+   cd ..
+   rosdep install --from-paths src --ignore-src -r -y 
+
    ```
 
 2. Build the package:
    ```bash
    cd ~/ros2_ws
-   colcon build
+   colcon build --symlink-install
    ```
 
 3. Source the workspace:
@@ -63,7 +75,7 @@ This package provides a ROS2 node for collecting, logging, and visualizing WiFi 
 
 ## **Usage**
 
-### **Launching the Node**
+### **Launching the Wifi Loggin Node**
 To start the WiFi logger node, use the provided launch file:
 ```bash
 ros2 launch wifi_logger_visualizer wifi_logger.launch.py

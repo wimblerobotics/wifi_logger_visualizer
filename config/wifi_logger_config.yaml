@@ -1,23 +1,23 @@
-db_path: "/home/ros/sergei_wifi_loggger/src/wimble_wifi_logger_visualizer/wifi_data.db"
-wifi_interface: ""
-min_signal_strength: -90.0
-max_signal_strength: -30.0
-update_interval: 1.0
-decimals_to_round_coordinates: 3
-
-publish_metrics: true
-publish_overlay: true
-
-# RViz2 overlay parameters
-ov_horizontal_alignment: 0  # LEFT:0 RIGHT:1 CENTER:2
-ov_vertical_alignment: 3    # CENTER:2 TOP:3 Bottom:4
-ov_horizontal_distance: 10
-ov_vertical_distance: 10
-ov_width_factor: 1.0
-ov_height_factor: 1.0
-ov_font: "DejaVu Sans Mono"
-ov_font_size: 12.0
-ov_font_color: "0.8 0.8 0.3 0.8"  # RGBA
-ov_bg_color: "0.0 0.0 0.0 0.05"   # RGBA
-ov_do_short: true
-ov_do_full: true
+/**:
+  ros__parameters:
+    db_path: "/home/ros/wifi_logger_visualizer_ws/wifi_data.db"
+    wifi_interface: ""  # Leave empty for auto-detection
+    min_signal_strength: -90.0
+    max_signal_strength: -30.0
+    update_interval: 1.0
+    decimals_to_round_coordinates: 3
+    publish_metrics: true
+    publish_overlay: true
+    # RViz2 overlay parameters
+    ov_horizontal_alignment: 0  # LEFT:0 RIGHT:1 CENTER:2
+    ov_vertical_alignment: 3    # CENTER:2 TOP:3 Bottom:4
+    ov_horizontal_distance: 10
+    ov_vertical_distance: 10
+    ov_width_factor: 1.0
+    ov_height_factor: 1.0
+    ov_font: "DejaVu Sans Mono"
+    ov_font_size: 12.0
+    ov_font_color: "0.8 0.8 0.3 0.8"  # RGBA
+    ov_bg_color: "0.0 0.0 0.0 0.05"   # RGBA
+    ov_do_short: true
+    ov_do_full: true

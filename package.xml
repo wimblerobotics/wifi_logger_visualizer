@@ -20,6 +20,7 @@
   <depend>python3-scipy</depend>
   <depend>python3-seaborn</depend>
   <depend>python3-sqlite3</depend>
+  <depend>rviz_2d_overlay_plugins</depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>

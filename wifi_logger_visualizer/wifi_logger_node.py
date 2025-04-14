@@ -1,4 +1,21 @@
 #!/usr/bin/env python3
+import sys
+import os
+from pathlib import Path
+from ament_index_python.packages import get_package_share_directory
+
+# Get the directory of this script
+script_dir = Path(__file__).resolve().parent
+
+# Add the parent directory to sys.path if not already there
+parent_dir = script_dir.parent
+if str(parent_dir) not in sys.path:
+    sys.path.insert(0, str(parent_dir))
+
+# Now use absolute imports
+from wifi_logger_visualizer.database_manager import DatabaseManager
+from wifi_logger_visualizer.wifi_data_fetcher import WiFiDataFetcher
+
 import numpy as np
 import rclpy
 from rclpy.node import Node
@@ -6,7 +23,6 @@ import subprocess
 import re
 import sqlite3
 from typing import Optional, Tuple
-import os
 import yaml
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import PoseStamped
@@ -22,8 +38,6 @@ from rclpy.duration import Duration
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy, QoSDurabilityPolicy
 from rclpy.parameter import Parameter
 from rcl_interfaces.msg import SetParametersResult
-from .database_manager import DatabaseManager
-from .wifi_data_fetcher import WiFiDataFetcher
 
 MAX_SIGNAL_STRENGTH = -30.0
 MIN_SIGNAL_STRENGTH = -90.0
@@ -63,11 +77,19 @@ class WifiDataCollector(Node):
         """
         super().__init__('wifi_logger_node')
 
-        # Load configuration from YAML file
-        config_file_path = os.path.join(os.getcwd(), 'config', 'wifi_logger_config.yaml')
-        self.get_logger().info(f"Loading configuration from: {config_file_path}")
-        with open(config_file_path, 'r') as file:
-            config = yaml.safe_load(file)
+        try:
+            # Load configuration from YAML file
+            package_name = 'wifi_logger_visualizer'
+            package_dir = get_package_share_directory(package_name)
+            config_file_path = os.path.join(package_dir, 'config', 'wifi_logger_config.yaml')
+            self.get_logger().info(f"Loading configuration from: {config_file_path}")
+            
+            with open(config_file_path, 'r') as file:
+                config = yaml.safe_load(file)
+
+        except FileNotFoundError:
+            self.get_logger().error(f"Configuration file not found at {config_file_path}. Using default values.")
+            config = {}
 
         # Initialize parameters from the configuration file
         self.db_path = config.get('db_path', os.path.join(os.getcwd(), 'wifi_data.db'))
