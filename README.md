@@ -1,6 +1,7 @@
 # WiFi Logger and Visualizer for ROS2
 
-This package provides a ROS2 node for collecting, logging, and visualizing WiFi metrics such as bit rate, link quality, and signal strength. It integrates with GPS and odometry data to associate WiFi metrics with spatial coordinates and provides visualization capabilities both in RViz2 and as a standalone chart.
+This package provides ROS2 nodes for collecting, logging, and visualizing WiFi metrics of bit rate, link quality, and signal strength. 
+It integrates with odometry and, optionally, GPS data to associate WiFi metrics with spatial coordinates and provides visualization capabilities both in RViz2 and as a standalone chart.
 
 **NOTE for user os previous versions of this package. The database schema has changed for
 version 1.2 of this package. Please delete old databases in order to ensure compatability
@@ -46,7 +47,7 @@ this this version.**
    ```bash
    pip3 install numpy pyyaml matplotlib seaborn scipy
    ```
-2. **WiFi Tools**: Ensure `iwconfig` is installed on your system:
+2. **WiFi Tools**: Ensure `iwconfig` is installed on your robot:
    ```bash
    sudo apt install wireless-tools
    ```
@@ -54,7 +55,7 @@ this this version.**
 ---
 
 ### **Installation Steps**
-1. Clone the repository into your ROS2 workspace.
+1. Clone the repository into your ROS2 workspace both on your desktop (or whereever you want to do visualization) and on your robot, where you will do data logging of the WiFi metrics.
 2. The following assumes you are use a directory in your home directory called **ros2_ws**. Change the following if you use a different workspace directory.
    ```bash
    cd ~/ros2_ws/src
@@ -81,16 +82,17 @@ this this version.**
 
 ### **Capturing Wifi Data**
 
-To run the **wifi_logger_node.py**, you can use the provided launch file:
+To run the **wifi_logger_node.py** on your robot, you can use the provided launch file:
 ```bash
 ros2 launch wifi_logger_visualizer wifi_logger.launch.py
 ```
 
 The Wifi Logger node uses the **iwconfig** application to capture
-The bit rate, link quality and signal strength from the onboard wifi device.
+the bit rate, link quality and signal strength from the onboard wifi device.
 It requires odometry data to be published so that it can associate a location with
 the captured wifi data.
 If GPS location data is also being published, it will capture the GPS location as well.
+The odometry data will normally come from the motor driver on your robot, and you will usually be running the Nav2 stack
 
 The data is always written to the SQLite database. You can also specify that the data
 should be published as one or two ROS topics as well.
@@ -105,13 +107,12 @@ This module specifically uses the following parameters:
   The location of the SQLite datbase.
   If it does not exist, it will be created.
   If an abolute pathname is not provided, it will be used as a relative pathname.
-* **decimals_round_coordinates** (defaule: 3)  
+* **decimals_round_coordinates** (default: 3)  
   Round all pose **x** and **y** values to this many places to the right of the decimal point.
   When entries are about to be put into the database, the database is checked to see if
   there is already any entry for the current odometry pose. If so, the current entry is
   replaced. Otherwise a new entry is created. As odometry can create poses with very
-  small differences in locations, such as **x=0.1234567** vs **x=0.1234568**, sometimes because
-  of sensor noise, this parameter allows you to put pose values into more useful buckets.
+  small differences in locations, such as **x=0.1234567** vs **x=0.1234568**, this parameter allows you to put pose values into more useful buckets.
   A value of **3**, for instance, would round both of those **x** coordinates to a value
   of 0.123.
 * **max_signal_level** (default: -20.0)  
