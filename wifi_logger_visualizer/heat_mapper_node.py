@@ -57,13 +57,13 @@ class HeatMapperNode(Node):
         
         # Log parameter values
         self.get_logger().info(f"Parameter values:")
-        self.get_logger().info(f"  standalone: {self.standalone}")
-        self.get_logger().info(f"  db_path: {self.db_path}")
         self.get_logger().info(f"  costmap_topic: {self.costmap_topic}")
-        self.get_logger().info(f"  scale_factor: {self.scale_factor}")
-        self.get_logger().info(f"  text_size: {self.text_size} (type: {type(self.text_size)})")
+        self.get_logger().info(f"  db_path: {self.db_path}")
         self.get_logger().info(f"  do_publish_markers: {self.do_publish_markers}")
         self.get_logger().info(f"  do_publish_text_markers: {self.do_publish_text_markers}")
+        self.get_logger().info(f"  scale_factor: {self.scale_factor}")
+        self.get_logger().info(f"  standalone: {self.standalone}")
+        self.get_logger().info(f"  text_size: {self.text_size} (type: {type(self.text_size)})")
         
         # Initialize costmap dimensions
         self.costmap_resolution = None

@@ -204,24 +204,148 @@ An example of the overlay, with missing GPS data, is:
 
 ### **Displaying Wifi Data as a Topological Map**
 
-### **Displaying Wifi Data as a Heat map**
-
-### **Launching the Wifi Loggin Node**
-To start the WiFi logger node, use the provided launch file:
+To run the **wifi_visualizer_node.py**, you can use the provided launch file:
 ```bash
-ros2 launch wifi_logger_visualizer wifi_logger.launch.py
+ros2 launch wifi_logger_visualizer wifi_visualizer.launch.py
 ```
 
-### **Configuration**
-The node is configured using a YAML file located in the `config` directory.
+The Wifi Visualizer node begins by listenening for an existing costmap
+(by default it's the costmap published on the **/global_costmap/costmap** topic)
+in order to create a new costmap of the same size, resolution and origin.
+Then a connection is made to the database produced by the Wifi Logger node.
+That database may be a saved one or it may contain live data.
 
-You can modify this file to adjust parameters such as the database path, WiFi interface, and visualization settings.
+This node will pick up the last time stamp recorded in the database, generate a
+visualization of the data as a costmap, and will periodically look to see if
+the database has changed (i.e., if the Wifi Logger node is making changes to
+the database). If the database changes, the costmap will be updated.
 
-See the [Configuration Guide](CONFIG_README.md) for a complete description of the file.
+#### **Configuration**
+You can edit the **configuration.yaml** file, located in the **config/wifi_logger_config.yaml**
+file before building this package to set the default parameters for this package.
+You can also override the configuration parameters as needed on the command line.
+This module specifically uses the following parameters:
+* **costmap_topic** (default: '/global_costmap/costmap')  
+  The costmap topic to subscribe to in order to get the size, resolution and
+  origin to use for the costmaps to be published by this module.
+* **db_check_frequency** (default: 2.0 Hz)  
+  How often to check the database for changes.
+* **db_path** (default: 'wifi_data.db')  
+  The location of the SQLite datbase.
+  If an abolute pathname is not provided, it will be used as a relative pathname.
+* **enable_bit_rate** (default: True)  
+  If true, publish a costmap showing the interpolated bit rate readings
+  on the **/wifi_bit_rate_costmap** topic.
+* **enable_link_quality** (default: True)  
+  If true, publish a costmap showing the interpolated link quality readings
+  on the **/wifi_link_quality_costmap** topic.
+* **enable_signal_level** (default: True)  
+  If true, publish a costmap showing the interpolated signal level readings
+  on the **/wifi_signal_level_costmap** topic.
+* **max_interpolation_distance** (default: 1.0 meters)  
+  The costmap will attempt to produce a smooth gradient between actual readings
+  in the database. Each reading in the database will be interpolated towards
+  other readings in the database that are within this distance.
+* **publication_frequency** (default: 1.0 Hz)  
+  How often to update the published costmaps.
+
+An example of the signal strength costmap displayed in RViz2 is:
+![Sample Wifi Signal Strength Costmap](media/costmap_signal_strength.png)
+
+
+### **Displaying Wifi Data as a Heat map**
+
+To run the **heat_mapper_node.py**, you can use the provided launch file:
+```bash
+ros2 launch wifi_logger_visualizer heat_mapper.launch.py
+```
+
+The Wifi Heat Mapper node runs in one of two modes.
+In **standalone** mode, it produces a **MatPlotLib** based chart showing a
+two dimensional chart of the signal strength data.
+When not in **standalone** mode, the node begins by listenening for an existing costmap
+(by default it's the costmap published on the **/global_costmap/costmap** topic)
+in order to create a new costmap of the same size, resolution and origin.
+Then a connection is made to the database produced by the Wifi Logger node.
+That database may be a saved one or it may contain live data.
+
+This node will pick up the last time stamp recorded in the database, generate a
+visualization of the data as a costmap, and will periodically look to see if
+the database has changed (i.e., if the Wifi Logger node is making changes to
+the database). If the database changes, the costmap will be updated.
+
+#### **Configuration**
+You can edit the **configuration.yaml** file, located in the **config/wifi_logger_config.yaml**
+file before building this package to set the default parameters for this package.
+You can also override the configuration parameters as needed on the command line.
+This module specifically uses the following parameters:
+* **costmap_topic** (default: '/global_costmap/costmap')  
+  The costmap topic to subscribe to in order to get the size, resolution and
+  origin to use for the costmaps to be published by this module.
+  Only used if **standalone** is False.
+* **db_check_frequency** (default: 2.0 Hz)  
+  How often to check the database for changes.
+  Only used if **standalone** is False.
+* **db_path** (default: 'wifi_data.db')  
+  The location of the SQLite datbase.
+  If an abolute pathname is not provided, it will be used as a relative pathname.
+* **do_publish_markers** (default: True)
+  If True, publish a heat map list of RViz2 markers showing the signal level readings
+  as cubes on the /wifi_heat_markers topic. 
+  The size of each marker cube is twice the resolution size of the costmap
+  so that they will be more visible.
+  The markers will be colorized so that signal levels
+  close to the mininum signal level will be read and signal levels near the
+  maximum signal level will be green.
+  The published costmap as the **map** frame as its frame id.
+  Only used if **standalone** is False.
+* **do_publish_text_markers** (default: True)
+  If True, publish a heat map list of RViz2 markers showing the dBm signal level readings
+  as text strings on the /wifi_heat_markers topic. 
+  The markers will be colorized so that signal levels
+  close to the mininum signal level will be read and signal levels near the
+  maximum signal level will be green.
+  The published costmap as the **map** frame as its frame id.
+  The text size of each marker is that of the **text_size** parameter.
+  Only used if **standalone** is False and **do_publish_markers** is True.
+* **scale_factor** (default: 1.0)  
+  When producing the **standalone** heat map, multiply all database values by this scale value.
+* **standalone** (default: False)  
+  If True, produce only a **MatPlotLib** window showing the heat map. 
+  If False, produce a costmap for visualization in RViz2.
+* **text_size** (default: 0.08)  
+  The text size (in points) of the text generated for each text marker as
+  described in the **do_publish_text_markers** parameter.
+
+  An example of the **standalone** heat map is:
+  ![Sample Standalone Heat Map](media/heatmap_stanalone.png)
+
+  An example of the RViz2 cubical markers (i.e. NOT **standalone**) displayed is:
+  ![Sample Heatmap as a Costmap](media/heatmap_markers.png)
+
+  An example of the RViz2 text markers (i.e. NOT **standalone**) displayed is:
+  ![Sample Heatmap as a Costmap](media/heatmap_text_markers.png)
 
 ### **Database**
-WiFi data is stored in an SQLite database. The default database file is `wifi_data.db` in the package directory. You can change the path in the YAML configuration file.
-
+WiFi data is stored in an SQLite database. 
+The schema is:
+```bash
+sqlite> .schema
+CREATE TABLE wifi_data (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT NOT NULL,
+                    x REAL,
+                    y REAL,
+                    latitude REAL,
+                    longitude REAL,
+                    gps_status INTEGER,
+                    gps_service INTEGER,
+                    bit_rate REAL,
+                    link_quality REAL,
+                    signal_level REAL
+                );
+CREATE TABLE sqlite_sequence(name,seq);
+```
 ---
 
 ## **Modules**
@@ -276,18 +400,6 @@ Check the database path in the YAML configuration file and ensure the directory 
 
 ---
 
-## **Documentation**
-For detailed API documentation, install and use [rosdoc2](https://github.com/ros2/rosdoc2):
-```bash
-sudo apt install ros-jazzy-rosdoc2
-```
-Generate the documentation:
-```bash
-rosdoc2 build .
-```
-
----
-
 ## **License**
 This package is licensed under the MIT License. See the `LICENSE` file for details.
 
@@ -299,6 +411,10 @@ Contributions are welcome! Please submit issues or pull requests on the GitHub r
 ---
 
 ## **Acknowledgments**
+Many thanks to **Sergei Grichine** for additions, improvements and feedback during
+development of this package. Please visit this github link and give him a star.
+[Sergei Grichine's GitHub](https://github.com/slgrobotics/robots_bringup)
+
 This package uses:
 - ROS2 Jazzy for robotics middleware.
 - `rviz_2d_overlay_plugins` for visualization.
