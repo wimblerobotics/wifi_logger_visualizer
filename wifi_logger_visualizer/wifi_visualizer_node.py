@@ -194,92 +194,52 @@ class WifiVisualizerNode(Node):
             return []
 
     def create_costmap(self, data, field_name, min_val, max_val):
-        """Create a signal field map showing values at each database point."""
+        """Create a signal field map using interpolation only between points within max_interpolation_distance."""
         if not data:
             return None
-        
-        # Extract coordinates and values
+
         x = np.array([row[0] for row in data])
         y = np.array([row[1] for row in data])
         values = np.array([row[field_name] for row in data])
-        
-        # Initialize output grid with unknown values (-1)
-        zi = np.full((self.costmap_height, self.costmap_width), -1, dtype=np.int8)
-        
-        # Debug logging for first few points
-        # for i in range(min(3, len(x))):
-        #     self.get_logger().info(f"Sample point {i}: world coords ({x[i]:.3f}, {y[i]:.3f})")
-        
-        # For each data point
-        for i in range(len(x)):
-            # Convert world coordinates to grid coordinates
-            # Note: grid coordinates are zero at the origin and increase right/up
-            grid_x = int((x[i] - self.costmap_origin.position.x) / self.costmap_resolution)
-            grid_y = int((y[i] - self.costmap_origin.position.y) / self.costmap_resolution)
-            
-            # Debug first few points' grid coordinates
-            # if i < 3:
-            #     self.get_logger().info(f"Sample point {i}: grid coords ({grid_x}, {grid_y})")
-            #     self.get_logger().info(f"  - Using origin: ({self.costmap_origin.position.x}, {self.costmap_origin.position.y})")
-            #     self.get_logger().info(f"  - Using resolution: {self.costmap_resolution}")
-            
-            # Skip if point is outside the costmap
-            if (grid_x < 0 or grid_x >= self.costmap_width or 
-                grid_y < 0 or grid_y >= self.costmap_height):
-                if i < 3:
-                    self.get_logger().warn(f"Point {i} ({x[i]}, {y[i]}) -> ({grid_x}, {grid_y}) outside costmap bounds")
-                continue
-            
-            # Calculate the radius in grid cells for max_interpolation_distance
-            radius_cells = int(self.max_interpolation_distance / self.costmap_resolution)
-            
-            # Create coordinate arrays for the circular region
-            y_indices, x_indices = np.mgrid[-radius_cells:radius_cells + 1, -radius_cells:radius_cells + 1]
-            
-            # Create the circular mask
-            distances = np.sqrt(x_indices**2 + y_indices**2) * self.costmap_resolution
-            mask = distances <= self.max_interpolation_distance
-            
-            # Get the actual coordinates in the grid
-            y_coords = grid_y + y_indices[mask]
-            x_coords = grid_x + x_indices[mask]
-            
-            # Filter out coordinates outside the grid
-            valid = (y_coords >= 0) & (y_coords < self.costmap_height) & \
-                    (x_coords >= 0) & (x_coords < self.costmap_width)
-            
-            if not np.any(valid):
-                if i < 3:
-                    self.get_logger().warn(f"No valid grid points for data point {i}")
-                continue
-            
-            y_coords = y_coords[valid]
-            x_coords = x_coords[valid]
-            distances = distances[mask][valid]
-            
-            # Calculate weights based on distance
-            weights = np.maximum(0, 1 - (distances / self.max_interpolation_distance))
-            
-            # Update grid points
-            current_value = values[i]
-            if min_val <= current_value <= max_val:
-                normalized_value = int(((current_value - min_val) / (max_val - min_val)) * 100)
-                
-                # Mark the exact measurement point with full value
-                if 0 <= grid_y < self.costmap_height and 0 <= grid_x < self.costmap_width:
-                    zi[grid_y, grid_x] = normalized_value
-                
-                # Update surrounding points with interpolated values
-                for idx in range(len(y_coords)):
-                    y_idx, x_idx = y_coords[idx], x_coords[idx]
-                    if zi[y_idx, x_idx] == -1:
-                        zi[y_idx, x_idx] = int(normalized_value * weights[idx])
-                    else:
-                        # For overlapping regions, take the maximum value
-                        zi[y_idx, x_idx] = max(zi[y_idx, x_idx], 
-                                             int(normalized_value * weights[idx]))
-        
-        return zi
+
+        grid_x, grid_y = np.meshgrid(
+            np.arange(self.costmap_width),
+            np.arange(self.costmap_height)
+        )
+        world_x = grid_x * self.costmap_resolution + self.costmap_origin.position.x
+        world_y = grid_y * self.costmap_resolution + self.costmap_origin.position.y
+
+        points = np.column_stack((x, y))
+        grid_points = np.column_stack((world_x.ravel(), world_y.ravel()))
+
+        # Interpolate as before
+        zi = griddata(
+            points,
+            values,
+            grid_points,
+            method='linear',
+            fill_value=np.nan
+        )
+
+        # Mask out grid points farther than max_interpolation_distance from any data point
+        from scipy.spatial import cKDTree
+        tree = cKDTree(points)
+        dists, _ = tree.query(grid_points, k=1)
+        mask = dists <= self.max_interpolation_distance
+
+        zi_masked = np.full_like(zi, np.nan)
+        zi_masked[mask] = zi[mask]
+        zi_masked = zi_masked.reshape(self.costmap_height, self.costmap_width)
+
+        # Normalize and mask out extrapolated regions (NaN)
+        zi_norm = np.full_like(zi_masked, -1, dtype=np.int8)
+        valid = ~np.isnan(zi_masked)
+        if np.any(valid):
+            zi_norm[valid] = np.clip(
+                ((zi_masked[valid] - min_val) / (max_val - min_val) * 100).astype(np.int8),
+                0, 100
+            )
+        return zi_norm
 
     def publish_costmap(self, data, field_name, publisher, min_val, max_val):
         """Create and publish a costmap aligned with the global costmap."""
