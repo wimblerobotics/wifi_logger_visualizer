@@ -423,7 +423,7 @@ class WifiDataCollector(Node):
                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
             output = result.stdout
 
-            # Updated regex patterns to handle kbytes, mbytes, or gbytes
+            # Updated regex patterns to handle multiple intervals and different formats
             sender_match = re.search(r"\[\s*\d\]\[TX-C\]\s+\d+\.\d+-\d+\.\d+\s+sec\s+\d+\.\d+\s+(K|M|G)Bytes\s+(\d+\.\d+)\s+(K|M|G)bits/sec", output)
             receiver_match = re.search(r"\[\s*\d\]\[RX-C\]\s+\d+\.\d+-\d+\.\d+\s+sec\s+\d+\.\d+\s+(K|M|G)Bytes\s+(\d+\.\d+)\s+(K|M|G)bits/sec", output)
 
@@ -441,9 +441,10 @@ class WifiDataCollector(Node):
                 self.iperf3_sender_bitrate = convert_to_mbps(sender_value, sender_unit)
                 self.iperf3_receiver_bitrate = convert_to_mbps(receiver_value, receiver_unit)
                 self.iperf3_ip = self.iperf3_host
-                # self.get_logger().info(f"iperf3 results: Sender: {self.iperf3_sender_bitrate} Mbps, Receiver: {self.iperf3_receiver_bitrate} Mbps")
+                self.get_logger().info(f"iperf3 results: Sender: {self.iperf3_sender_bitrate} Mbps, Receiver: {self.iperf3_receiver_bitrate} Mbps")
             else:
-                self.get_logger().warn("iperf3 output parsing failed.")
+                self.get_logger().warn("iperf3 output parsing failed. Output:")
+                self.get_logger().warn(output)
         except subprocess.CalledProcessError as e:
             self.get_logger().error(f"iperf3 execution failed: {e.stderr}")
         finally:
