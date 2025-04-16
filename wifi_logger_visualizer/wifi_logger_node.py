@@ -469,8 +469,9 @@ class WifiDataCollector(Node):
         self.x, self.y = tuple(round(x, self.decimals_to_round_coordinates) for x in self.current_pose)  # Round coordinates
         bit_rate, link_quality, signal_level = self.wifi_data_fetcher.get_wifi_data()
 
-        if self.do_publish_metrics:
-            self.publish_wifi_data(bit_rate, link_quality, signal_level)
+        sender_bitrate = self.iperf3_sender_bitrate if self.iperf3_sender_bitrate is not None else float('nan')
+        receiver_bitrate = self.iperf3_receiver_bitrate if self.iperf3_receiver_bitrate is not None else float('nan')
+        self.publish_wifi_data(bit_rate, link_quality, signal_level, sender_bitrate, receiver_bitrate)
 
         if self.do_publish_overlay:
             self.publish_wifi_overlay(bit_rate, link_quality, signal_level, self.wifi_data_fetcher.iwconfig_output)
@@ -496,16 +497,14 @@ class WifiDataCollector(Node):
         else:
             self.get_logger().warn("Could not retrieve all WiFi data, skipping insertion")
         
-    def publish_wifi_data(self, bit_rate, link_quality, signal_level):
+    def publish_wifi_data(self, bit_rate, link_quality, signal_level, sender_bitrate, receiver_bitrate):
+        """Publish WiFi data including iperf3 results."""
         try:
             msg = Float32MultiArray()
-            # Populate the data array (a 3x1 array), leave layout empty:
-            data = [bit_rate, link_quality, signal_level]
-            msg.data = data
+            # Populate the data array with 5 values: bit_rate, link_quality, signal_level, sender_bitrate, receiver_bitrate
+            msg.data = [bit_rate, link_quality, signal_level, sender_bitrate, receiver_bitrate]
 
-            #self.get_logger().info(f"Publishing WiFi data: interface: {self.wifi_interface}  bit_rate: {bit_rate}  link_quality: {link_quality}  signal_level: {signal_level}")
             self.metrics_publisher.publish(msg)
-
         except Exception as e:
             self.get_logger().error(f"Unexpected error publishing WiFi data: {e}")
 
