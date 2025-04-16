@@ -334,6 +334,32 @@ This module specifically uses the following parameters:
   An example of the RViz2 text markers (i.e. NOT **standalone**) displayed is:
   ![Sample Heatmap as a Costmap](media/heatmap_text_markers.png)
 
+### Updated /wifi/metrics Topic
+
+The `/wifi/metrics` topic now includes two additional fields:
+- **`iperf3_sender_bitrate`**: The bitrate reported by iperf3 for the sender (in Mbps).
+- **`iperf3_receiver_bitrate`**: The bitrate reported by iperf3 for the receiver (in Mbps).
+
+The full data array published to `/wifi/metrics` now contains the following fields:
+1. `bit_rate`: The WiFi bit rate (in Mbps).
+2. `link_quality`: The WiFi link quality (as a ratio).
+3. `signal_level`: The WiFi signal level (in dBm).
+4. `iperf3_sender_bitrate`: The iperf3 sender bitrate (in Mbps).
+5. `iperf3_receiver_bitrate`: The iperf3 receiver bitrate (in Mbps).
+
+Example message:
+```bash
+layout:
+  dim: []
+  data_offset: 0
+  data:
+  - 960.7  # bit_rate
+  - 1.0    # link_quality
+  - -31.0  # signal_level
+  - 53.6   # iperf3_sender_bitrate
+  - 54.4   # iperf3_receiver_bitrate
+```
+
 ### **Database**
 WiFi data is stored in an SQLite database. 
 The schema is:
