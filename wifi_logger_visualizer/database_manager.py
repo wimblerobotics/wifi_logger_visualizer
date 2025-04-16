@@ -32,6 +32,9 @@ class DatabaseManager:
                     bit_rate REAL,
                     link_quality REAL,
                     signal_level REAL,
+                    iperf3_sender_bitrate REAL,
+                    iperf3_receiver_bitrate REAL,
+                    iperf3_ip TEXT,
                     PRIMARY KEY (x, y)
                 )
             ''')
@@ -44,15 +47,15 @@ class DatabaseManager:
                 self.conn = None
                 self.cursor = None
 
-    def insert_data(self, x, y, latitude, longitude, gps_status, gps_service, bit_rate, link_quality, signal_level):
+    def insert_data(self, x, y, latitude, longitude, gps_status, gps_service, bit_rate, link_quality, signal_level, iperf3_sender_bitrate=None, iperf3_receiver_bitrate=None, iperf3_ip=None):
         """Insert or update WiFi data in the database."""
         if not self.conn:
             self.setup_database()
-            
+
         if not self.conn:
             print("Could not connect to database")
             return False
-            
+
         try:
             # Check if the x, y entry already exists in the database
             self.cursor.execute(
@@ -66,20 +69,22 @@ class DatabaseManager:
                     '''
                     UPDATE wifi_data
                     SET timestamp = ?, latitude = ?, longitude = ?, gps_status = ?, gps_service = ?,
-                        bit_rate = ?, link_quality = ?, signal_level = ?
+                        bit_rate = ?, link_quality = ?, signal_level = ?,
+                        iperf3_sender_bitrate = ?, iperf3_receiver_bitrate = ?, iperf3_ip = ?
                     WHERE x = ? AND y = ?
                     ''',
                     (datetime.now().isoformat(), latitude, longitude, gps_status, gps_service,
-                     bit_rate, link_quality, signal_level, x, y)
+                     bit_rate, link_quality, signal_level,
+                     iperf3_sender_bitrate, iperf3_receiver_bitrate, iperf3_ip, x, y)
                 )
             else:
                 # Insert a new entry if x, y does not exist
                 self.cursor.execute(
                     '''
-                    INSERT INTO wifi_data (timestamp, x, y, latitude, longitude, gps_status, gps_service, bit_rate, link_quality, signal_level)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO wifi_data (timestamp, x, y, latitude, longitude, gps_status, gps_service, bit_rate, link_quality, signal_level, iperf3_sender_bitrate, iperf3_receiver_bitrate, iperf3_ip)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ''',
-                    (datetime.now().isoformat(), x, y, latitude, longitude, gps_status, gps_service, bit_rate, link_quality, signal_level)
+                    (datetime.now().isoformat(), x, y, latitude, longitude, gps_status, gps_service, bit_rate, link_quality, signal_level, iperf3_sender_bitrate, iperf3_receiver_bitrate, iperf3_ip)
                 )
 
             self.conn.commit()

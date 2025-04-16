@@ -161,6 +161,13 @@ This module specifically uses the following parameters:
 
   ```
 
+* **iperf3_host**  
+  The IP address or hostname of the iperf3 server to connect to.
+* **iperf3_interval**  
+  The interval (in seconds) at which iperf3 tests are run.
+* **do_iperf3**  
+  Boolean flag to enable or disable iperf3 tests.
+
 The following parameters can be changed dynamically using, e.g., the **rqt** program:
 * decimals_to_round_coordinates
 * max_signal_level
@@ -343,10 +350,32 @@ CREATE TABLE wifi_data (
                     gps_service INTEGER,
                     bit_rate REAL,
                     link_quality REAL,
-                    signal_level REAL
+                    signal_level REAL,
+                    iperf3_sender_bitrate REAL,
+                    iperf3_receiver_bitrate REAL,
+                    iperf3_ip TEXT
                 );
 CREATE TABLE sqlite_sequence(name,seq);
 ```
+
+---
+
+### New Parameters
+
+- **`iperf3_host`**: The IP address or hostname of the iperf3 server to connect to.
+- **`iperf3_interval`**: The interval (in seconds) at which iperf3 tests are run.
+- **`do_iperf3`**: Boolean flag to enable or disable iperf3 tests.
+
+### New Database Fields
+
+- **`iperf3_sender_bitrate`**: The bitrate reported by iperf3 for the sender (in Mbps).
+- **`iperf3_receiver_bitrate`**: The bitrate reported by iperf3 for the receiver (in Mbps).
+- **`iperf3_ip`**: The IP address of the iperf3 server.
+
+### New Functionality
+
+If `do_iperf3` is set to `true` and `iperf3_host` is configured, the node will periodically run `iperf3 -c <iperf3_host> --bidir` at the interval specified by `iperf3_interval`. The results (sender bitrate, receiver bitrate, and server IP) are stored in the database and can be used for analysis.
+
 ---
 
 ## **Modules**

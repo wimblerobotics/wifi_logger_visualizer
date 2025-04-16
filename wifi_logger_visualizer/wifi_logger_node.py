@@ -117,6 +117,22 @@ class WifiDataCollector(Node):
         self.do_publish_metrics = self.declare_and_get_param('publish_metrics', config.get('publish_metrics', True))
         self.do_publish_overlay = self.declare_and_get_param('publish_overlay', config.get('publish_overlay', True))
 
+        # Declare iperf3-related parameters
+        self.iperf3_host = self.declare_and_get_param('iperf3_host', config.get('iperf3_host', ''))
+        self.iperf3_interval = self.declare_and_get_param('iperf3_interval', config.get('iperf3_interval', 1.0))
+        self.do_iperf3 = self.declare_and_get_param('do_iperf3', config.get('do_iperf3', True))
+
+        # Initialize iperf3 results
+        self.iperf3_sender_bitrate = None
+        self.iperf3_receiver_bitrate = None
+        self.iperf3_ip = None
+        self.iperf3_running = False  # Flag to prevent overlapping executions
+
+        # If iperf3 is enabled, test and start the timer
+        if self.do_iperf3 and self.iperf3_host:
+            self.test_iperf3()
+            self.create_timer(self.iperf3_interval, self.run_iperf3)
+
         # Ensure db_path is an absolute path
         if not os.path.isabs(self.db_path):
             self.db_path = os.path.abspath(self.db_path)
@@ -132,6 +148,9 @@ class WifiDataCollector(Node):
         self.get_logger().info(f"  decimals_to_round_coordinates: {self.decimals_to_round_coordinates}")
         self.get_logger().info(f"  publish_metrics: {self.do_publish_metrics}")
         self.get_logger().info(f"  publish_overlay: {self.do_publish_overlay}")
+        self.get_logger().info(f"  iperf3_host: {self.iperf3_host}")
+        self.get_logger().info(f"  iperf3_interval: {self.iperf3_interval}")
+        self.get_logger().info(f"  do_iperf3: {self.do_iperf3}")
 
         # Set up parameter callback
         self.add_on_set_parameters_callback(self.parameter_callback)
@@ -382,6 +401,54 @@ class WifiDataCollector(Node):
             self.get_logger().error(f"Unexpected error in gps_callback: {e}")
             self.gps_unavailable()
 
+    def test_iperf3(self):
+        """Test if iperf3 can connect to the specified host."""
+        try:
+            result = subprocess.run(['iperf3', '-c', self.iperf3_host, '--bidir', '--time', '1'],
+                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+            self.get_logger().info(f"iperf3 test successful: {result.stdout}")
+        except subprocess.CalledProcessError as e:
+            self.get_logger().error(f"iperf3 test failed: {e.stderr}")
+            self.do_iperf3 = False
+
+    def run_iperf3(self):
+        """Run iperf3 and capture the results."""
+        if self.iperf3_running:
+            self.get_logger().warn("iperf3 is already running. Skipping this execution.")
+            return
+
+        self.iperf3_running = True  # Set the flag to indicate the function is running
+        try:
+            result = subprocess.run(['iperf3', '-c', self.iperf3_host, '--bidir', '--time', '1'],
+                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+            output = result.stdout
+
+            # Updated regex patterns to handle kbytes, mbytes, or gbytes
+            sender_match = re.search(r"\[\s*\d\]\[TX-C\]\s+\d+\.\d+-\d+\.\d+\s+sec\s+\d+\.\d+\s+(K|M|G)Bytes\s+(\d+\.\d+)\s+(K|M|G)bits/sec", output)
+            receiver_match = re.search(r"\[\s*\d\]\[RX-C\]\s+\d+\.\d+-\d+\.\d+\s+sec\s+\d+\.\d+\s+(K|M|G)Bytes\s+(\d+\.\d+)\s+(K|M|G)bits/sec", output)
+
+            def convert_to_mbps(value, unit):
+                if unit == 'K':
+                    return float(value) / 1000  # Convert Kbits/sec to Mbits/sec
+                elif unit == 'G':
+                    return float(value) * 1000  # Convert Gbits/sec to Mbits/sec
+                return float(value)  # Already in Mbits/sec
+
+            if sender_match and receiver_match:
+                sender_value, sender_unit = sender_match.group(2), sender_match.group(3)
+                receiver_value, receiver_unit = receiver_match.group(2), receiver_match.group(3)
+
+                self.iperf3_sender_bitrate = convert_to_mbps(sender_value, sender_unit)
+                self.iperf3_receiver_bitrate = convert_to_mbps(receiver_value, receiver_unit)
+                self.iperf3_ip = self.iperf3_host
+                # self.get_logger().info(f"iperf3 results: Sender: {self.iperf3_sender_bitrate} Mbps, Receiver: {self.iperf3_receiver_bitrate} Mbps")
+            else:
+                self.get_logger().warn("iperf3 output parsing failed.")
+        except subprocess.CalledProcessError as e:
+            self.get_logger().error(f"iperf3 execution failed: {e.stderr}")
+        finally:
+            self.iperf3_running = False  # Reset the flag
+
     def timer_callback(self):
         """
         Periodic callback to collect and store WiFi data.
@@ -409,7 +476,17 @@ class WifiDataCollector(Node):
             self.publish_wifi_overlay(bit_rate, link_quality, signal_level, self.wifi_data_fetcher.iwconfig_output)
 
         if all(v is not None for v in [bit_rate, link_quality, signal_level]):
-            self.database_manager.insert_data(self.x, self.y, self.latitude, self.longitude, self.gps_status, self.gps_service, bit_rate, link_quality, signal_level)
+            if self.iperf3_sender_bitrate is not None and self.iperf3_receiver_bitrate is not None:
+                self.database_manager.insert_data(
+                    self.x, self.y, self.latitude, self.longitude, self.gps_status, self.gps_service,
+                    bit_rate, link_quality, signal_level,
+                    self.iperf3_sender_bitrate, self.iperf3_receiver_bitrate, self.iperf3_ip
+                )
+            else:
+                self.database_manager.insert_data(
+                    self.x, self.y, self.latitude, self.longitude, self.gps_status, self.gps_service,
+                    bit_rate, link_quality, signal_level
+                )
             self.get_logger().debug(
                 f"X: {self.x}, Y: {self.y}, "
                 f"Bit Rate: {bit_rate} Mb/s, "

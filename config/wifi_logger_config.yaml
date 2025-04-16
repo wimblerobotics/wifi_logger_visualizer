@@ -1,13 +1,17 @@
   /**:
     ros__parameters:
       db_path: "wifi_data.db"
-      wifi_interface: ""  # Leave empty for auto-detection
-      min_signal_level: -100.0
-      max_signal_level: -10.0
-      update_interval: 1.0
       decimals_to_round_coordinates: 3
+      do_iperf3: true
+      iperf3_host: "amdc.local"
+      iperf3_interval: 1.0
+      max_signal_level: -10.0
+      min_signal_level: -100.0
       publish_metrics: true
       publish_overlay: true
+      update_interval: 1.0
+      wifi_interface: ""  # Leave empty for auto-detection
+
       # RViz2 overlay parameters
       ov_horizontal_alignment: 0  # LEFT:0 RIGHT:1 CENTER:2
       ov_vertical_alignment: 3    # CENTER:2 TOP:3 Bottom:4
