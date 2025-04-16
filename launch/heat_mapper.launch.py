@@ -37,6 +37,13 @@ def generate_launch_description():
         description='Size of the text markers in meters'
     )
 
+    # Declare the heatmap_field argument
+    heatmap_field_arg = DeclareLaunchArgument(
+        'heatmap_field',
+        default_value='signal_level',
+        description='Field to visualize as a heatmap (e.g., signal_level, bit_rate, link_quality, iperf3_sender_bitrate, iperf3_receiver_bitrate)'
+    )
+
     # Create the heat mapper node with explicit parameter passing
     heat_mapper_node = Node(
         package='wifi_logger_visualizer',
@@ -47,6 +54,7 @@ def generate_launch_description():
             'db_path': LaunchConfiguration('db_path'),
             'scale_factor': LaunchConfiguration('scale_factor'),
             'text_size': LaunchConfiguration('text_size'),
+            'heatmap_field': LaunchConfiguration('heatmap_field'),
         }],
         output='screen'
     )
@@ -70,6 +78,7 @@ def generate_launch_description():
         db_path_arg,
         scale_factor_arg,
         text_size_arg,
+        heatmap_field_arg,  # Include the new argument
         heat_mapper_node,
         set_text_size_cmd
-    ]) 
+    ])

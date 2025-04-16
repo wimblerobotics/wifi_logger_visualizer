@@ -45,6 +45,7 @@ class HeatMapperNode(Node):
         self.declare_parameter('text_size', 0.08)  # Text size in meters
         self.declare_parameter('do_publish_markers', True)  # Whether to publish value markers
         self.declare_parameter('do_publish_text_markers', True)  # Whether to publish text markers
+        self.declare_parameter('heatmap_field', 'signal_level')  # Declare a new parameter for selecting the heatmap field
         
         # Get parameter values
         self.standalone = self.get_parameter('standalone').value
@@ -54,7 +55,8 @@ class HeatMapperNode(Node):
         self.text_size = self.get_parameter('text_size').value
         self.do_publish_markers = self.get_parameter('do_publish_markers').value
         self.do_publish_text_markers = self.get_parameter('do_publish_text_markers').value
-        
+        self.heatmap_field = self.get_parameter('heatmap_field').value
+
         # Log parameter values
         self.get_logger().info(f"Parameter values:")
         self.get_logger().info(f"  costmap_topic: {self.costmap_topic}")
@@ -64,6 +66,7 @@ class HeatMapperNode(Node):
         self.get_logger().info(f"  scale_factor: {self.scale_factor}")
         self.get_logger().info(f"  standalone: {self.standalone}")
         self.get_logger().info(f"  text_size: {self.text_size} (type: {type(self.text_size)})")
+        self.get_logger().info(f"  heatmap_field: {self.heatmap_field}")
         
         # Initialize costmap dimensions
         self.costmap_resolution = None
@@ -134,26 +137,32 @@ class HeatMapperNode(Node):
         self.publish_heatmap_costmap(data)
     
     def get_data(self):
-        """Get all data from the database."""
+        """Get all data from the database for the selected heatmap field."""
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            cursor.execute("SELECT x,y,bit_rate,link_quality,signal_level FROM wifi_data")
+            # Dynamically select the field to query
+            valid_fields = ['bit_rate', 'link_quality', 'signal_level', 'iperf3_sender_bitrate', 'iperf3_receiver_bitrate']
+            if self.heatmap_field not in valid_fields:
+                self.get_logger().error(f"Invalid heatmap field: {self.heatmap_field}. Defaulting to 'signal_level'.")
+                self.heatmap_field = 'signal_level'
+
+            query = f"SELECT x, y, {self.heatmap_field} FROM wifi_data"
+            cursor.execute(query)
             rows = cursor.fetchall()
             conn.close()
-            # self.get_logger().info(f"Fetched {len(rows)} rows from database")
             return rows
         except sqlite3.Error as e:
-            self.get_logger().error(f"Error: retrieving wifi data: {e}")
+            self.get_logger().error(f"Error retrieving wifi data: {e}")
             return []
-    
+
     def publish_heatmap_costmap(self, data):
         """Publish heatmap as a MarkerArray with value markers and text annotations."""
         if not data:
             self.get_logger().warn('No data to publish')
             return
-            
+
         # Create marker array for value markers
         if self.do_publish_markers:
             value_markers = MarkerArray()
@@ -168,7 +177,7 @@ class HeatMapperNode(Node):
             value_marker.scale.y = self.costmap_resolution * 2.0
             value_marker.scale.z = 0.1  # Height of the cubes
             value_marker.pose.orientation.w = 1.0
-            
+
             # Create marker array for text annotations
             if self.do_publish_text_markers:
                 text_markers = MarkerArray()
@@ -180,21 +189,20 @@ class HeatMapperNode(Node):
                 text_marker.type = Marker.TEXT_VIEW_FACING
                 text_marker.action = Marker.ADD
                 text_marker.scale.z = self.text_size  # Text size
-            
+
             # Process each data point
-            for x, y, timestamp, link_quality, signal_level in data:
-                # Convert signal strength to color (red for weak, green for strong)
-                # Assuming signal_level is in dBm, typically ranging from -100 to 0
-                normalized_strength = (signal_level + 100) / 100.0  # Normalize to 0-1
-                normalized_strength = max(0.0, min(1.0, normalized_strength))  # Clamp to 0-1
-                
-                # Create color gradient from red (weak) to green (strong)
+            for x, y, value in data:
+                # Normalize the value for color mapping
+                normalized_value = (value - 0) / 100.0  # Example normalization, adjust as needed
+                normalized_value = max(0.0, min(1.0, normalized_value))  # Clamp to 0-1
+
+                # Create color gradient from red (low) to green (high)
                 color = ColorRGBA()
-                color.r = 1.0 - normalized_strength
-                color.g = normalized_strength
+                color.r = 1.0 - normalized_value
+                color.g = normalized_value
                 color.b = 0.0
                 color.a = 0.8  # Slightly transparent
-                
+
                 # Add point to value marker
                 if self.do_publish_markers:
                     point = Point()
@@ -203,7 +211,7 @@ class HeatMapperNode(Node):
                     point.z = 0.0
                     value_marker.points.append(point)
                     value_marker.colors.append(color)
-                
+
                 # Add text annotation
                 if self.do_publish_text_markers:
                     text_point = Point()
@@ -211,24 +219,22 @@ class HeatMapperNode(Node):
                     text_point.y = y
                     text_point.z = 0.2  # Position text above the cube
                     text_marker.pose.position = text_point
-                    text_marker.text = f"{signal_level:.1f}"
+                    text_marker.text = f"{value:.1f}"
                     text_markers.markers.append(copy.deepcopy(text_marker))
                     text_marker.id += 1
-                    text_marker.color.r = 1.0 - normalized_strength 
-                    text_marker.color.g = normalized_strength
+                    text_marker.color.r = 1.0 - normalized_value
+                    text_marker.color.g = normalized_value
                     text_marker.color.b = 0.0
                     text_marker.color.a = 1.0
-            
+
             # Publish value markers
             if self.do_publish_markers:
                 value_markers.markers.append(value_marker)
                 self.heatmap_pub.publish(value_markers)
-                # self.get_logger().info(f'Published {len(value_marker.points)} value markers')
-            
+
             # Publish text markers
             if self.do_publish_text_markers:
                 self.text_markers_pub.publish(text_markers)
-                # self.get_logger().info(f'Published {len(text_markers.markers)} text markers')
     
     def create_heatmap(self):
         """Create a matplotlib heatmap from the database data."""
@@ -236,7 +242,14 @@ class HeatMapperNode(Node):
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            cursor.execute("SELECT x,y,bit_rate,link_quality,signal_level FROM wifi_data")
+            # Dynamically select the field to query based on heatmap_field
+            valid_fields = ['bit_rate', 'link_quality', 'signal_level', 'iperf3_sender_bitrate', 'iperf3_receiver_bitrate']
+            if self.heatmap_field not in valid_fields:
+                self.get_logger().error(f"Invalid heatmap field: {self.heatmap_field}. Defaulting to 'signal_level'.")
+                self.heatmap_field = 'signal_level'
+
+            query = f"SELECT x, y, {self.heatmap_field} FROM wifi_data"
+            cursor.execute(query)
             rows = np.array(cursor.fetchall())
             rows = np.round(rows, decimals=1) * self.scale_factor
 
@@ -247,13 +260,6 @@ class HeatMapperNode(Node):
             if row_count == 0:
                 self.get_logger().warn("No data found in database")
                 return
-                
-            # self.get_logger().info(f"Row 0: {rows[0]}")
-            # self.get_logger().info(f"Row 0 [0] = x: {rows[0][0]}")
-            # self.get_logger().info(f"Row 0 [1] = y: {rows[0][1]}")
-            # self.get_logger().info(f"Row 0 [2] = bit_rate: {rows[0][2]}")
-            # self.get_logger().info(f"Row 0 [3] = link_quality: {rows[0][3]}")
-            # self.get_logger().info(f"Row 0 [4] = signal_level: {rows[0][4]}")
 
             min_arr = np.min(rows, axis=0)
             min_x = math.floor(min_arr[0])
@@ -284,30 +290,27 @@ class HeatMapperNode(Node):
                         data_x = int(round(row[0]-min_x))+1
                         data_y = int(round(row[1]-min_y))+1
                         if data_x==x and data_y==y:
-                            hd_val = math.floor(row[4] / self.scale_factor) # signal_level=4; scale it back, round down
+                            hd_val = math.floor(row[2] / self.scale_factor) # Use the selected heatmap_field
                             hd_min = min(hd_min, hd_val)
                             hd_max = max(hd_max, hd_val)
                             heat_data[y][x] = hd_val
-                            # self.get_logger().debug(f"{data_x} {data_y}   {x} {y} {heat_data[y][x]}")
-                self.get_logger().debug(f"---- end Y {y}")
+
+            # Create the heatmap
+            plt.figure(figsize=(10, 8))
+            ax = sns.heatmap(heat_data, annot=True, cmap='coolwarm', fmt=".0f", linewidths=.2, vmin=hd_min, vmax=hd_max)
+            ax.invert_yaxis()
+
+            # Customize the plot (optional)
+            plt.title(f'WiFi {self.heatmap_field.replace("_", " ").title()} Heatmap')
+            plt.xlabel('X-axis Travel')
+            plt.ylabel('Y-axis Travel')
+
+            # Display the heatmap
+            plt.show()
 
         except sqlite3.Error as e:
             self.get_logger().error(f"Error: retrieving wifi data: {e}")
             return
-
-        # Create the heatmap
-        plt.figure(figsize=(10, 8))
-        ax = sns.heatmap(heat_data, annot=True, cmap='coolwarm', fmt=".0f", linewidths=.2, vmin=hd_min, vmax=hd_max)
-        # https://seaborn.pydata.org/tutorial/color_palettes.html
-        ax.invert_yaxis()
-
-        # Customize the plot (optional)
-        plt.title('WiFi Signal Strength Heatmap')
-        plt.xlabel('X-axis Travel')
-        plt.ylabel('Y-axis Travel')
-
-        # Display the heatmap
-        plt.show()
 
 def main(args=None):
     rclpy.init(args=args)

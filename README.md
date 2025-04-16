@@ -324,15 +324,30 @@ This module specifically uses the following parameters:
 * **text_size** (default: 0.08)  
   The text size (in points) of the text generated for each text marker as
   described in the **do_publish_text_markers** parameter.
+* **heatmap_field** (default: 'signal_level')  
+  The field to visualize as a heatmap. Supported fields are:
+  - `bit_rate`: The WiFi bit rate (in Mbps).
+  - `link_quality`: The WiFi link quality (as a ratio).
+  - `signal_level`: The WiFi signal level (in dBm).
+  - `iperf3_sender_bitrate`: The iperf3 sender bitrate (in Mbps).
+  - `iperf3_receiver_bitrate`: The iperf3 receiver bitrate (in Mbps).
 
-  An example of the **standalone** heat map is:
-  ![Sample Standalone Heat Map](media/heatmap_stanalone.png)
+#### Example Configuration
+To visualize the `bit_rate` field as a heatmap, set the parameter as follows:
+```bash
+ros2 param set /heat_mapper_node heatmap_field bit_rate
+```
 
-  An example of the RViz2 cubical markers (i.e. NOT **standalone**) displayed is:
-  ![Sample Heatmap as a Costmap](media/heatmap_markers.png)
+The default field is `signal_level`. If an invalid field is specified, the node will default to `signal_level` and log an error.
 
-  An example of the RViz2 text markers (i.e. NOT **standalone**) displayed is:
-  ![Sample Heatmap as a Costmap](media/heatmap_text_markers.png)
+An example of the **standalone** heat map is:
+![Sample Standalone Heat Map](media/heatmap_stanalone.png)
+
+An example of the RViz2 cubical markers (i.e. NOT **standalone**) displayed is:
+![Sample Heatmap as a Costmap](media/heatmap_markers.png)
+
+An example of the RViz2 text markers (i.e. NOT **standalone**) displayed is:
+![Sample Heatmap as a Costmap](media/heatmap_text_markers.png)
 
 ### Updated /wifi/metrics Topic
 
