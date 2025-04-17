@@ -118,7 +118,7 @@ class WifiDataCollector(Node):
         self.do_publish_overlay = self.declare_and_get_param('publish_overlay', config.get('publish_overlay', True))
 
         # Declare iperf3-related parameters
-        self.iperf3_host = self.declare_and_get_param('iperf3_host', config.get('iperf3_host', ''))
+        self.iperf3_host = self.declare_and_get_param('iperf3_host', config.get('iperf3_host', 'amdc.local'))
         self.iperf3_interval = self.declare_and_get_param('iperf3_interval', config.get('iperf3_interval', 1.0))
         self.do_iperf3 = self.declare_and_get_param('do_iperf3', config.get('do_iperf3', True))
 
@@ -188,6 +188,44 @@ class WifiDataCollector(Node):
         self.database_manager = DatabaseManager(self.db_path)
         self.wifi_data_fetcher = WiFiDataFetcher(self.wifi_interface, self.min_signal_level, self.max_signal_level)
 
+        # --- Restore publishers and subscribers here ---
+        # Odometry subscriber
+        self.odom_subscriber = self.create_subscription(
+            Odometry,
+            '/odom',
+            self.odom_callback,
+            10
+        )
+
+        # GPS subscriber
+        self.gps_subscriber = self.create_subscription(
+            NavSatFix,
+            '/gps/fix',
+            self.gps_callback,
+            10
+        )
+
+        # WiFi metrics publisher
+        self.metrics_publisher = self.create_publisher(
+            Float32MultiArray,
+            '/wifi_logger/metrics',
+            10
+        )
+
+        # Overlay publisher
+        self.overlay_publisher = self.create_publisher(
+            OverlayText,
+            '/wifi_logger/overlay',
+            10
+        )
+
+        # TF2 buffer and listener
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
+
+        # Track if transform is available
+        self.transform_available = False
+
         # Other initialization...
 
         # Initialize globals which can be used before being filled:
@@ -208,57 +246,8 @@ class WifiDataCollector(Node):
         else:
             self.get_logger().info(f"Using WiFi interface: {self.wifi_interface}")
 
-        # Initialize the tf2 buffer and transform listener
-        self.tf_buffer = Buffer()
-        self.tf_listener = TransformListener(self.tf_buffer, self)
-
-        # Create odometry subscription with optimized QoS settings
-        qos = QoSProfile(
-            reliability=QoSReliabilityPolicy.BEST_EFFORT,  # Use best effort for real-time performance
-            history=QoSHistoryPolicy.KEEP_LAST,  # Keep only the last message
-            depth=100,  # Keep last 100 messages
-            durability=QoSDurabilityPolicy.VOLATILE  # Don't persist messages
-        )
-        
-        self.odom_subscriber = self.create_subscription(
-            Odometry,
-            '/odom',
-            self.odom_callback,
-            qos
-        )
-
-        self.gps_subscriber = self.create_subscription(
-            NavSatFix,
-            '/gps/filtered',
-            self.gps_callback,
-            qos
-        )
-
-        if self.do_publish_metrics:
-            self.metrics_publisher = self.create_publisher(
-                Float32MultiArray,
-                '/wifi/metrics',
-                10
-            )
-            self.get_logger().info("Publishing WiFi metrics")
-        else:
-            self.get_logger().info("Not publishing WiFi metrics")
-            
-        if self.do_publish_overlay:
-            self.overlay_publisher = self.create_publisher(
-                OverlayText,
-                '/wifi/overlay',
-                10
-            )
-            self.get_logger().info("Publishing WiFi overlay")
-        else:
-            self.get_logger().info("Not publishing WiFi overlay")
-
-        self.current_pose = None
-        self.transform_available = False
-
         self.wait_for_transform()
-        
+
         # Create timer for periodic updates
         self.timer = self.create_timer(self.update_interval, self.timer_callback)
 
@@ -423,36 +412,42 @@ class WifiDataCollector(Node):
                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
             output = result.stdout
 
-            # Updated regex patterns to handle variations in interval format and additional details
-            sender_match = re.search(r"\[\s*\d\]\[TX-C\]\s+\d+\.\d+-\d+\.\d+\s+sec\s+\d+\.\d+\s+(K|M|G)Bytes\s+(\d+\.\d+)\s+(K|M|G)bits/sec\s+\d*\s+.*sender", output)
-            receiver_match = re.search(r"\[\s*\d\]\[RX-C\]\s+\d+\.\d+-\d+\.\d+\s+sec\s+\d+\.\d+\s+(K|M|G)Bytes\s+(\d+\.\d+)\s+(K|M|G)bits/sec\s+\d*\s+.*receiver", output)
+            # Always log the full output at INFO level
+            self.get_logger().info(f"Full iperf3 output:\n{output}")
 
-            def convert_to_mbps(value, unit):
-                if unit == 'K':
-                    return float(value) / 1000  # Convert Kbits/sec to Mbits/sec
-                elif unit == 'G':
-                    return float(value) * 1000  # Convert Gbits/sec to Mbits/sec
-                return float(value)  # Already in Mbits/sec
+            # Updated regex patterns to capture the first TX-C and RX-C bitrates
+            tx_match = re.search(r"\[\s*\d+\]\[TX-C\][^\n]*?(\d+(?:\.\d+)?)\s+(K|M|G)bits/sec", output)
+            rx_match = re.search(r"\[\s*\d+\]\[RX-C\][^\n]*?(\d+(?:\.\d+)?)\s+(K|M|G)bits/sec", output)
 
-            if sender_match and receiver_match:
-                sender_value, sender_unit = sender_match.group(2), sender_match.group(3)
-                receiver_value, receiver_unit = receiver_match.group(2), receiver_match.group(3)
-
-                self.iperf3_sender_bitrate = convert_to_mbps(sender_value, sender_unit)
-                self.iperf3_receiver_bitrate = convert_to_mbps(receiver_value, receiver_unit)
-                self.iperf3_ip = self.iperf3_host
-                self.get_logger().info(f"iperf3 results: Sender: {self.iperf3_sender_bitrate} Mbps, Receiver: {self.iperf3_receiver_bitrate} Mbps")
+            if tx_match:
+                tx_value, tx_unit = tx_match.group(1), tx_match.group(2)
+                self.get_logger().info(f"TX-C match succeeded. Matched value: {tx_value} {tx_unit}.")
+                self.iperf3_sender_bitrate = convert_to_mbps(tx_value, tx_unit)
             else:
-                self.iperf3_sender_bitrate = float('nan')
-                self.iperf3_receiver_bitrate = float('nan')
+                self.get_logger().warn("TX-C match failed.")
+
+            if rx_match:
+                rx_value, rx_unit = rx_match.group(1), rx_match.group(2)
+                self.get_logger().info(f"RX-C match succeeded. Matched value: {rx_value} {rx_unit}.")
+                self.iperf3_receiver_bitrate = convert_to_mbps(rx_value, rx_unit)
+            else:
+                self.get_logger().warn("RX-C match failed.")
+
+            # Log results or warn if parsing failed
+            if not (tx_match or rx_match):
                 self.get_logger().warn("iperf3 output parsing failed. Output:")
                 self.get_logger().warn(output)
+            else:
+                self.iperf3_ip = self.iperf3_host
+                self.get_logger().info(f"iperf3 results: Sender: {self.iperf3_sender_bitrate} Mbps, Receiver: {self.iperf3_receiver_bitrate} Mbps")
 
             # Debugging logs to ensure values are assigned correctly
-            self.get_logger().debug(f"Parsed iperf3_sender_bitrate: {self.iperf3_sender_bitrate}")
-            self.get_logger().debug(f"Parsed iperf3_receiver_bitrate: {self.iperf3_receiver_bitrate}")
+            self.get_logger().info(f"Parsed iperf3_sender_bitrate: {self.iperf3_sender_bitrate}")
+            self.get_logger().info(f"Parsed iperf3_receiver_bitrate: {self.iperf3_receiver_bitrate}")
         except subprocess.CalledProcessError as e:
             self.get_logger().error(f"iperf3 execution failed: {e.stderr}")
+        except Exception as e:
+            self.get_logger().error(f"Unexpected error during iperf3 execution: {e}")
         finally:
             self.iperf3_running = False  # Reset the flag
 
@@ -495,7 +490,7 @@ class WifiDataCollector(Node):
                     self.x, self.y, self.latitude, self.longitude, self.gps_status, self.gps_service,
                     bit_rate, link_quality, signal_level
                 )
-            self.get_logger().debug(
+            self.get_logger().info(
                 f"X: {self.x}, Y: {self.y}, "
                 f"Bit Rate: {bit_rate} Mb/s, "
                 f"Link Quality: {link_quality:.2f}, "
@@ -634,6 +629,20 @@ class WifiDataCollector(Node):
                     raise RuntimeError("Transform not available")
             # Sleep briefly before trying again
             rclpy.spin_once(self, timeout_sec=0.1)
+
+def convert_to_mbps(value: str, unit: str) -> float:
+    """
+    Convert a numeric value and unit (K, M, G) to Mbps.
+    """
+    value = float(value)
+    if unit == 'G':
+        return value * 1000
+    elif unit == 'M':
+        return value
+    elif unit == 'K':
+        return value / 1000
+    else:
+        return float('nan')
 
 def main(args=None):
     # import ipdb; ipdb.set_trace()  # Add this line to start the debugger
