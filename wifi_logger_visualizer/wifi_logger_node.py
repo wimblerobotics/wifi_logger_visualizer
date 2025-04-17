@@ -108,7 +108,7 @@ class WifiDataCollector(Node):
             config = {}
 
         # Declare parameters and load from configuration file
-        self.db_path = self.declare_and_get_param('db_path', config.get('db_path', 'wifi_data.db'))
+        self.db_path = self.declare_and_get_param('db_path', config.get('db_path', '/home/ros/wifi_logger_visualizer_ws/wifi_data.db'))
         self.wifi_interface = self.declare_and_get_param('wifi_interface', config.get('wifi_interface', ''))
         self.min_signal_level = self.declare_and_get_param('min_signal_level', config.get('min_signal_level', -100.0))
         self.max_signal_level = self.declare_and_get_param('max_signal_level', config.get('max_signal_level', -10.0))
@@ -118,7 +118,7 @@ class WifiDataCollector(Node):
         self.do_publish_overlay = self.declare_and_get_param('publish_overlay', config.get('publish_overlay', True))
 
         # Declare iperf3-related parameters
-        self.iperf3_host = self.declare_and_get_param('iperf3_host', config.get('iperf3_host', ''))
+        self.iperf3_host = self.declare_and_get_param('iperf3_host', config.get('iperf3_host', '192.168.86.155'))
         self.iperf3_interval = self.declare_and_get_param('iperf3_interval', config.get('iperf3_interval', 1.0))
         self.do_iperf3 = self.declare_and_get_param('do_iperf3', config.get('do_iperf3', True))
 

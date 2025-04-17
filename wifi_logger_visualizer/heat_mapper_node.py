@@ -46,6 +46,7 @@ class HeatMapperNode(Node):
         self.declare_parameter('do_publish_markers', True)  # Whether to publish value markers
         self.declare_parameter('do_publish_text_markers', True)  # Whether to publish text markers
         self.declare_parameter('heatmap_field', 'signal_level')  # Declare a new parameter for selecting the heatmap field
+        self.declare_parameter('aggregation_type', 'average')  # Declare a new parameter for selecting aggregation type
         
         # Get parameter values
         self.standalone = self.get_parameter('standalone').value
@@ -56,6 +57,7 @@ class HeatMapperNode(Node):
         self.do_publish_markers = self.get_parameter('do_publish_markers').value
         self.do_publish_text_markers = self.get_parameter('do_publish_text_markers').value
         self.heatmap_field = self.get_parameter('heatmap_field').value
+        self.aggregation_type = self.get_parameter('aggregation_type').value
 
         # Log parameter values
         self.get_logger().info(f"Parameter values:")
@@ -67,6 +69,7 @@ class HeatMapperNode(Node):
         self.get_logger().info(f"  standalone: {self.standalone}")
         self.get_logger().info(f"  text_size: {self.text_size} (type: {type(self.text_size)})")
         self.get_logger().info(f"  heatmap_field: {self.heatmap_field}")
+        self.get_logger().info(f"  aggregation_type: {self.aggregation_type}")
         
         # Initialize costmap dimensions
         self.costmap_resolution = None
@@ -142,13 +145,23 @@ class HeatMapperNode(Node):
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            # Dynamically select the field to query
+            # Dynamically select the field to query based on heatmap_field
             valid_fields = ['bit_rate', 'link_quality', 'signal_level', 'iperf3_sender_bitrate', 'iperf3_receiver_bitrate']
             if self.heatmap_field not in valid_fields:
                 self.get_logger().error(f"Invalid heatmap field: {self.heatmap_field}. Defaulting to 'signal_level'.")
                 self.heatmap_field = 'signal_level'
 
-            query = f"SELECT x, y, {self.heatmap_field} FROM wifi_data"
+            # Allow user to select aggregation type (min, max, average)
+            aggregation_type = self.get_parameter('aggregation_type').value
+            if aggregation_type not in ['min', 'max', 'average']:
+                self.get_logger().error(f"Invalid aggregation type: {aggregation_type}. Defaulting to 'average'.")
+                aggregation_type = 'average'
+
+            if aggregation_type == 'average':
+                query = f"SELECT x, y, {self.heatmap_field}_sum / {self.heatmap_field}_count AS {self.heatmap_field}_average FROM wifi_data"
+            else:
+                query = f"SELECT x, y, {self.heatmap_field}_{aggregation_type} FROM wifi_data"
+
             cursor.execute(query)
             rows = cursor.fetchall()
             conn.close()
