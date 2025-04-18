@@ -414,7 +414,7 @@ class WifiDataCollector(Node):
 
         self.iperf3_running = True  # Set the flag to indicate the function is running
         try:
-            result = subprocess.run(['iperf3', '-c', self.iperf3_host, '--bidir', '--time', '1'],
+            result = subprocess.run(['iperf3', '-c', self.iperf3_host, '--bidir', '--time', '1', '-O', '0', '-P', '1'],
                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
             output = result.stdout
 
