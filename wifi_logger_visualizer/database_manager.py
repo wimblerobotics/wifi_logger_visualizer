@@ -80,6 +80,7 @@ class DatabaseManager:
 
             if existing_entry:
                 # Update the existing entry with new values
+                # print(f"About to update existing entry for x: {x}, y: {y}, iperf3_sender_bitrate: {iperf3_sender_bitrate}, iperf3_sender_bitrate_sum: {existing_entry[21]}, iperf3_sender_bitrate_count: {existing_entry[22]}")
                 self.cursor.execute(
                     '''
                     UPDATE wifi_data
@@ -121,6 +122,11 @@ class DatabaseManager:
                      1 if iperf3_receiver_bitrate is not None else 0, # Count
                      iperf3_ip if iperf3_ip is not None else None, x, y)
                 )
+                # self.cursor.execute(
+                #     'SELECT * FROM wifi_data WHERE x = ? AND y = ?', (x, y)
+                # )
+                # new_entry = self.cursor.fetchone()
+                # print(f"update  x: {x}, y: {y}, iperf3_sender_bitrate_sum: {new_entry[21]}, iperf3_sender_bitrate_count: {new_entry[22]}")
             else:
                 # Insert a new entry if x, y does not exist
                 self.cursor.execute(
@@ -142,13 +148,18 @@ class DatabaseManager:
                      iperf3_sender_bitrate if iperf3_sender_bitrate is not None else float('nan'),
                      iperf3_sender_bitrate if iperf3_sender_bitrate is not None else float('nan'),
                      iperf3_sender_bitrate if iperf3_sender_bitrate is not None else float('nan'),
-                     iperf3_sender_bitrate if iperf3_sender_bitrate is not None else float('nan'),
+                     1,
                      iperf3_receiver_bitrate if iperf3_receiver_bitrate is not None else float('nan'),
                      iperf3_receiver_bitrate if iperf3_receiver_bitrate is not None else float('nan'),
                      iperf3_receiver_bitrate if iperf3_receiver_bitrate is not None else float('nan'),
-                     iperf3_receiver_bitrate if iperf3_receiver_bitrate is not None else float('nan'),
+                     1,
                      iperf3_ip if iperf3_ip is not None else None)
                 )
+                self.cursor.execute(
+                    'SELECT * FROM wifi_data WHERE x = ? AND y = ?', (x, y)
+                )
+                new_entry = self.cursor.fetchone()
+                # print(f"new entry  x: {x}, y: {y}, iperf3_sender_bitrate_sum: {new_entry[21]}, iperf3_sender_bitrate_count: {new_entry[22]}")
 
             self.conn.commit()
             return True
