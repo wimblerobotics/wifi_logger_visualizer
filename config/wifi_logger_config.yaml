@@ -3,7 +3,7 @@
       db_path: "wifi_data.db"
       decimals_to_round_coordinates: 3
       do_iperf3: true
-      iperf3_host: "amdc.local"
+      iperf3_host: "amdc"
       iperf3_interval: 1.0
       max_signal_level: -10.0
       min_signal_level: -100.0
@@ -11,7 +11,7 @@
       publish_overlay: true
       update_interval: 1.0
       wifi_interface: ""  # Leave empty for auto-detection
-      heatmap_field: "signal_level"  # Default field to visualize
+      heatmap_field: "iperf3_sender_bitrate"  # Default field to visualize
       aggregation_type: "average"  # Default aggregation type (min, max, average)
 
       # RViz2 overlay parameters
@@ -21,8 +21,8 @@
       ov_vertical_distance: 10
       ov_width_factor: 1.0
       ov_height_factor: 1.0
-      ov_font: "DejaVu Sans Mono"
-      ov_font_size: 12.0
+      ov_font: "XXXDejaVu Sans Mono"
+      ov_font_size: 4.0
       ov_font_color: "0.1 0.1 0.1 1.0"  # RGBA
       ov_bg_color: "1.0 1.0 1.0 0.5"   # RGBA
       ov_do_short: true

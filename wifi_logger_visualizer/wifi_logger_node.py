@@ -107,12 +107,18 @@ class WifiDataCollector(Node):
             self.get_logger().error(f"Configuration file not found at {config_file_path}. Using default values.")
             config = {}
 
+        def to_float(val, default):
+            try:
+                return float(val)
+            except (TypeError, ValueError):
+                return float(default)
+
         # Declare parameters and load from configuration file
         self.db_path = self.declare_and_get_param('db_path', config.get('db_path', '/home/ros/wifi_logger_visualizer_ws/wifi_data.db'))
         self.wifi_interface = self.declare_and_get_param('wifi_interface', config.get('wifi_interface', ''))
-        self.min_signal_level = self.declare_and_get_param('min_signal_level', config.get('min_signal_level', -100.0))
-        self.max_signal_level = self.declare_and_get_param('max_signal_level', config.get('max_signal_level', -10.0))
-        self.update_interval = self.declare_and_get_param('update_interval', config.get('update_interval', 1.0))
+        self.min_signal_level = to_float(self.declare_and_get_param('min_signal_level', config.get('min_signal_level', -100.0)), -100.0)
+        self.max_signal_level = to_float(self.declare_and_get_param('max_signal_level', config.get('max_signal_level', -10.0)), -10.0)
+        self.update_interval = to_float(self.declare_and_get_param('update_interval', config.get('update_interval', 1.0)), 1.0)
         self.decimals_to_round_coordinates = self.declare_and_get_param('decimals_to_round_coordinates', config.get('decimals_to_round_coordinates', 3))
         self.do_publish_metrics = self.declare_and_get_param('publish_metrics', config.get('publish_metrics', True))
         self.do_publish_overlay = self.declare_and_get_param('publish_overlay', config.get('publish_overlay', True))
@@ -160,11 +166,11 @@ class WifiDataCollector(Node):
         self.ov_vertical_alignment = self.declare_and_get_param('ov_vertical_alignment', config.get('ov_vertical_alignment', 3))
         self.ov_horizontal_distance = self.declare_and_get_param('ov_horizontal_distance', config.get('ov_horizontal_distance', 10))
         self.ov_vertical_distance = self.declare_and_get_param('ov_vertical_distance', config.get('ov_vertical_distance', 10))
-        self.ov_width_factor = self.declare_and_get_param('ov_width_factor', config.get('ov_width_factor', 1.0))
-        self.ov_height_factor = self.declare_and_get_param('ov_height_factor', config.get('ov_height_factor', 1.0))
+        self.ov_width_factor = to_float(self.declare_and_get_param('ov_width_factor', config.get('ov_width_factor', 1.0)), 1.0)
+        self.ov_height_factor = to_float(self.declare_and_get_param('ov_height_factor', config.get('ov_height_factor', 1.0)), 1.0)
         self.ov_font = self.declare_and_get_param('ov_font', config.get('ov_font', "DejaVu Sans Mono"))
         self.ov_font_color = self.declare_and_get_param('ov_font_color', config.get('ov_font_color', "0.8 0.8 0.3 0.8"))
-        self.ov_font_size = self.declare_and_get_param('ov_font_size', config.get('ov_font_size', 12.0))
+        self.ov_font_size = to_float(self.declare_and_get_param('ov_font_size', config.get('ov_font_size', 12.0)), 12.0)
         self.ov_bg_color = self.declare_and_get_param('ov_bg_color', config.get('ov_bg_color', "0.0 0.0 0.0 0.05"))
         self.ov_do_short = self.declare_and_get_param('ov_do_short', config.get('ov_do_short', True))
         self.ov_do_full = self.declare_and_get_param('ov_do_full', config.get('ov_do_full', True))
@@ -492,9 +498,11 @@ class WifiDataCollector(Node):
                 )
             self.get_logger().info(
                 f"X: {self.x}, Y: {self.y}, "
-                f"Bit Rate: {bit_rate} Mb/s, "
-                f"Link Quality: {link_quality:.2f}, "
-                f"Signal Level: {signal_level} dBm"
+                # f"Bit Rate: {bit_rate} Mb/s, "
+                # f"Link Quality: {link_quality:.2f}, "
+                # f"Signal Level: {signal_level} dBm",
+                f"Sender Bitrate: {self.iperf3_sender_bitrate} Mbps, "
+                f"Receiver Bitrate: {self.iperf3_receiver_bitrate} Mbps"
             )
         else:
             self.get_logger().warn("Could not retrieve all WiFi data, skipping insertion")

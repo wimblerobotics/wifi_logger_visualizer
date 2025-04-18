@@ -353,7 +353,7 @@ class HeatMapperNode(Node):
             ax.invert_yaxis()
 
             # Customize the plot (optional)
-            plt.title(f'WiFi {self.heatmap_field.replace("_", " ").title()} Heatmap')
+            plt.title(f'WiFi {self.aggregation_type.capitalize()} {self.heatmap_field.replace("_", " ").title()} Heatmap')
             plt.xlabel('X-axis Travel')
             plt.ylabel('Y-axis Travel')
 
