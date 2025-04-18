@@ -11,20 +11,30 @@
             "env": {
                 "PYTHONPATH": "${workspaceFolder}/install/wifi_logger_visualizer/lib/python3.10/site-packages:${env:PYTHONPATH}"
             },
-            "args": ["iperf3_host:=192.168.86.155"],
+            "args": ["--ros-args", "-p", "heatmap_field:=iperf3_sender_bitrate", "-p", "aggregation_type:=max"],
             "cwd": "/home/ros/wifi_logger_visualizer_ws"
         },
         {
-            "name": "Debug WiFi Heat Mapper Node",
-            "type": "debugpy",
+            "name": "ROS: Launch heat_mapper",
+            "type": "ros",
             "request": "launch",
-            "program": "${workspaceFolder}/wifi_logger_visualizer/heat_mapper_node.py",
-            "console": "integratedTerminal",
-            "justMyCode": true,
+            "target": "src/wifi_logger_visualizer/launch/heat_mapper.launch.py",
             "env": {
                 "PYTHONPATH": "${workspaceFolder}/install/wifi_logger_visualizer/lib/python3.10/site-packages:${env:PYTHONPATH}"
             },
-            "cwd": "/home/ros/wifi_logger_visualizer_ws"
-        }
+        },
+        // {
+        //     "name": "Debug WiFi Heat Mapper Node",
+        //     "type": "debugpy",
+        //     "request": "launch",
+        //     "program": "${workspaceFolder}/wifi_logger_visualizer/heat_mapper_node.py",
+        //     "console": "internalConsole",
+        //     "justMyCode": true,
+        //     "env": {
+        //         "PYTHONPATH": "${workspaceFolder}/install/wifi_logger_visualizer/lib/python3.10/site-packages:${env:PYTHONPATH}"
+        //     },
+        //     "args": ["--ros-args", "-p", "heatmap_field:=iperf3_sender_bitrate", "-p", "aggregation_type:=max"],
+        //     "cwd": "/home/ros/wifi_logger_visualizer_ws"
+        // }
     ]
 }

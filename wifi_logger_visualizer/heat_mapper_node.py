@@ -17,6 +17,8 @@ import os
 from ament_index_python.packages import get_package_share_directory
 import xml.etree.ElementTree as ET
 from datetime import datetime
+import matplotlib
+
 
 class HeatMapperNode(Node):
     def __init__(self):
@@ -37,27 +39,16 @@ class HeatMapperNode(Node):
         compile_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         self.get_logger().info(f"Source File: {source_file}, Version: {version}, Compile Time: {compile_time}")
 
-        # Declare parameters
-        self.declare_parameter('standalone', False)
-        self.declare_parameter('db_path', 'wifi_data.db')
-        self.declare_parameter('costmap_topic', '/global_costmap/costmap')
-        self.declare_parameter('scale_factor', 1.0)
-        self.declare_parameter('text_size', 0.08)  # Text size in meters
-        self.declare_parameter('do_publish_markers', True)  # Whether to publish value markers
-        self.declare_parameter('do_publish_text_markers', True)  # Whether to publish text markers
-        self.declare_parameter('heatmap_field', 'signal_level')  # Declare a new parameter for selecting the heatmap field
-        self.declare_parameter('aggregation_type', 'average')  # Declare a new parameter for selecting aggregation type
-        
-        # Get parameter values
-        self.standalone = self.get_parameter('standalone').value
-        self.db_path = self.get_parameter('db_path').value
-        self.costmap_topic = self.get_parameter('costmap_topic').value
-        self.scale_factor = self.get_parameter('scale_factor').value
-        self.text_size = self.get_parameter('text_size').value
-        self.do_publish_markers = self.get_parameter('do_publish_markers').value
-        self.do_publish_text_markers = self.get_parameter('do_publish_text_markers').value
-        self.heatmap_field = self.get_parameter('heatmap_field').value
-        self.aggregation_type = self.get_parameter('aggregation_type').value
+        # Declare parameters and retrieve values
+        self.standalone = self.declare_and_get_param('standalone', True)
+        self.db_path = self.declare_and_get_param('db_path', 'wifi_data.db')
+        self.costmap_topic = self.declare_and_get_param('costmap_topic', '/global_costmap/costmap')
+        self.scale_factor = self.declare_and_get_param('scale_factor', 1.0)
+        self.text_size = self.declare_and_get_param('text_size', 0.08)  # Text size in meters
+        self.do_publish_markers = self.declare_and_get_param('do_publish_markers', True)  # Whether to publish value markers
+        self.do_publish_text_markers = self.declare_and_get_param('do_publish_text_markers', True)  # Whether to publish text markers
+        self.heatmap_field = self.declare_and_get_param('heatmap_field', 'iperf3_sender_bitrate')  # Field to visualize
+        self.aggregation_type = self.declare_and_get_param('aggregation_type', 'max')  # Aggregation type (min, max, average)
 
         # Log parameter values
         self.get_logger().info(f"Parameter values:")
@@ -70,6 +61,7 @@ class HeatMapperNode(Node):
         self.get_logger().info(f"  text_size: {self.text_size} (type: {type(self.text_size)})")
         self.get_logger().info(f"  heatmap_field: {self.heatmap_field}")
         self.get_logger().info(f"  aggregation_type: {self.aggregation_type}")
+        self.get_logger().info(f"Heatmap field: {self.heatmap_field}, Aggregation type: {self.aggregation_type}")
         
         # Initialize costmap dimensions
         self.costmap_resolution = None
@@ -102,6 +94,20 @@ class HeatMapperNode(Node):
             # Create matplotlib heatmap
             self.create_heatmap()
         
+    def declare_and_get_param(self, name, default_value):
+        """
+        Declare a parameter and retrieve its value.
+
+        Parameters:
+            name (str): Name of the parameter.
+            default_value: Default value of the parameter.
+
+        Returns:
+            The value of the parameter.
+        """
+        self.declare_parameter(name, default_value)
+        return self.get_parameter(name).value
+
     def wait_for_costmap(self):
         """Wait for the first costmap message to get dimensions."""
         msg = None
@@ -144,6 +150,7 @@ class HeatMapperNode(Node):
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
+
 
             # Dynamically select the field to query based on heatmap_field
             valid_fields = ['bit_rate', 'link_quality', 'signal_level', 'iperf3_sender_bitrate', 'iperf3_receiver_bitrate']
@@ -261,7 +268,15 @@ class HeatMapperNode(Node):
                 self.get_logger().error(f"Invalid heatmap field: {self.heatmap_field}. Defaulting to 'signal_level'.")
                 self.heatmap_field = 'signal_level'
 
-            query = f"SELECT x, y, {self.heatmap_field} FROM wifi_data"
+            aggregation_type = self.aggregation_type
+            if aggregation_type not in ['min', 'max', 'average']:
+                self.get_logger().error(f"Invalid aggregation type: {aggregation_type}. Defaulting to 'average'.")
+                aggregation_type = 'average'
+
+            if aggregation_type == 'average':
+                query = f"SELECT x, y, {self.heatmap_field}_sum / {self.heatmap_field}_count AS {self.heatmap_field}_average FROM wifi_data"
+            else:
+                query = f"SELECT x, y, {self.heatmap_field}_{aggregation_type} FROM wifi_data"
             cursor.execute(query)
             rows = np.array(cursor.fetchall())
             rows = np.round(rows, decimals=1) * self.scale_factor
@@ -290,27 +305,51 @@ class HeatMapperNode(Node):
             dim_y = int(math.ceil(max_y)) - int(math.floor(min_y)) + 3
             self.get_logger().info(f"drawing space: dim_x: {dim_x}  dim_y: {dim_y}")
 
-            heat_data = np.zeros((dim_y, dim_x)) # somehow x and y are inverted when drawing heatmap
+            heat_data = np.full((dim_y, dim_x), np.nan)  # seed with nan
 
             hd_min = +1000.0
             hd_max = -1000.0
 
             for y in range(dim_y):
                 for x in range(dim_x):
-                    heat_data[y][x] = None # comment this out to see zeroes instead of white space
                     for row in rows:
                         # find data_x and data_y in rows matching our position (x,y) in drawing space:
                         data_x = int(round(row[0]-min_x))+1
                         data_y = int(round(row[1]-min_y))+1
                         if data_x==x and data_y==y:
                             hd_val = math.floor(row[2] / self.scale_factor) # Use the selected heatmap_field
-                            hd_min = min(hd_min, hd_val)
-                            hd_max = max(hd_max, hd_val)
-                            heat_data[y][x] = hd_val
+                            if aggregation_type == 'min':
+                                if np.isnan(heat_data[y][x]):
+                                    heat_data[y][x] = hd_val
+                                else:
+                                    heat_data[y][x] = min(heat_data[y][x], hd_val)
+                            elif aggregation_type == 'max':
+                                if np.isnan(heat_data[y][x]):
+                                    heat_data[y][x] = hd_val
+                                else:
+                                    heat_data[y][x] = max(heat_data[y][x], hd_val)
+                            else:  # average or other
+                                heat_data[y][x] = hd_val
+
+                    if not np.isnan(heat_data[y][x]):
+                        hd_min = min(hd_min, heat_data[y][x])
+                        hd_max = max(hd_max, heat_data[y][x])
+
+            # Before plotting:
+            cmap = plt.get_cmap('coolwarm').copy()
+            cmap.set_bad(color='white')  # Set background color for nan values
 
             # Create the heatmap
             plt.figure(figsize=(10, 8))
-            ax = sns.heatmap(heat_data, annot=True, cmap='coolwarm', fmt=".0f", linewidths=.2, vmin=hd_min, vmax=hd_max)
+            ax = sns.heatmap(
+                heat_data,
+                annot=True,
+                cmap=cmap,
+                fmt=".0f",
+                linewidths=.2,
+                vmin=hd_min,
+                vmax=hd_max
+            )
             ax.invert_yaxis()
 
             # Customize the plot (optional)
@@ -327,6 +366,7 @@ class HeatMapperNode(Node):
 
 def main(args=None):
     rclpy.init(args=args)
+    print("Starting WiFi logger node")
     node = HeatMapperNode()
     rclpy.spin(node)
     node.destroy_node()

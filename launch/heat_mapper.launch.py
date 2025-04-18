@@ -40,21 +40,53 @@ def generate_launch_description():
     # Declare the heatmap_field argument
     heatmap_field_arg = DeclareLaunchArgument(
         'heatmap_field',
-        default_value='signal_level',
+        default_value='iperf3_sender_bitrate',
         description='Field to visualize as a heatmap (e.g., signal_level, bit_rate, link_quality, iperf3_sender_bitrate, iperf3_receiver_bitrate)'
+    )
+
+    # Declare the costmap_topic argument
+    costmap_topic_arg = DeclareLaunchArgument(
+        'costmap_topic',
+        default_value='/global_costmap/costmap',
+        description='Topic to subscribe to for costmap dimensions'
+    )
+
+    # Declare the do_publish_markers argument
+    do_publish_markers_arg = DeclareLaunchArgument(
+        'do_publish_markers',
+        default_value='true',
+        description='Whether to publish value markers'
+    )
+
+    # Declare the do_publish_text_markers argument
+    do_publish_text_markers_arg = DeclareLaunchArgument(
+        'do_publish_text_markers',
+        default_value='true',
+        description='Whether to publish text markers'
+    )
+
+    # Declare the aggregation_type argument
+    aggregation_type_arg = DeclareLaunchArgument(
+        'aggregation_type',
+        default_value='average',
+        description='Aggregation type for the heatmap (min, max, average)'
     )
 
     # Create the heat mapper node with explicit parameter passing
     heat_mapper_node = Node(
         package='wifi_logger_visualizer',
         executable='heat_mapper_node.py',
-        name='heat_mapper',
+        name='heat_mapper_node',
         parameters=[{
             'standalone': LaunchConfiguration('standalone'),
             'db_path': LaunchConfiguration('db_path'),
             'scale_factor': LaunchConfiguration('scale_factor'),
             'text_size': LaunchConfiguration('text_size'),
             'heatmap_field': LaunchConfiguration('heatmap_field'),
+            'costmap_topic': LaunchConfiguration('costmap_topic'),
+            'do_publish_markers': LaunchConfiguration('do_publish_markers'),
+            'do_publish_text_markers': LaunchConfiguration('do_publish_text_markers'),
+            'aggregation_type': LaunchConfiguration('aggregation_type'),
         }],
         output='screen'
     )
@@ -78,7 +110,11 @@ def generate_launch_description():
         db_path_arg,
         scale_factor_arg,
         text_size_arg,
-        heatmap_field_arg,  # Include the new argument
+        heatmap_field_arg,
+        costmap_topic_arg,
+        do_publish_markers_arg,
+        do_publish_text_markers_arg,
+        aggregation_type_arg,
         heat_mapper_node,
         set_text_size_cmd
     ])

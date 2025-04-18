@@ -1,4 +1,4 @@
-  /**:
+/**:
     ros__parameters:
       db_path: "wifi_data.db"
       decimals_to_round_coordinates: 3
@@ -11,6 +11,8 @@
       publish_overlay: true
       update_interval: 1.0
       wifi_interface: ""  # Leave empty for auto-detection
+      heatmap_field: "signal_level"  # Default field to visualize
+      aggregation_type: "average"  # Default aggregation type (min, max, average)
 
       # RViz2 overlay parameters
       ov_horizontal_alignment: 0  # LEFT:0 RIGHT:1 CENTER:2
