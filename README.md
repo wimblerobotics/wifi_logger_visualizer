@@ -57,10 +57,10 @@ source ~/wifi_logger_visualizer_ws/install/setup.bash
 
 ### Logging WiFi Data
 
-**NOTE** You must run ROS 2 nodes that publish the **/odom** topic and the map to odom transform**. 
+**NOTE:** You must run ROS 2 nodes that publish the **/odom** topic and the map to odom transform**. 
 This is required in order to associate a location with the WiFi metrics gathered.
 Optionally, if GPS location data is also being published on the **/gps/fix** topic, starting before this node is run,
-the GPS location will also be associated the WiFi metrics.
+the GPS location will also be associated with the WiFi metrics.
 
 Run the logger node on your robot or where you want to gather WiFi metrics based on location:
 
@@ -98,9 +98,9 @@ You may provide the following configuration parameters to the node:
   Vertical alignment of the overlay. Options: `3` (TOP), `2` (CENTER), `4` (BOTTOM).
   - `ov_horizontal_distance` (default: 10)  
   Horizontal distance of the overlay center from the border, in pixels.
-  - `ov_vertical_distance` (default 10)  
+  - `ov_vertical_distance` (default: 10)  
   Vertical distance of the overlay center from the border, in pixels.
-  - `ov_width_factor` (default 1.0)  
+  - `ov_width_factor` (default: 1.0)  
   Factor to adjust the overlay canvas width. Can be used to widen the overlay.
   - `ov_height_factor` (default: 1.0)  
   Factor to adjust the overlay canvas height. Can be used to lengthen the overlay.
@@ -121,20 +121,20 @@ You may provide the following configuration parameters to the node:
   rather than the theoretical bit rate provided by **iwconfig**,
   fill in the name of the computer running **iperf3** in server mode.
   The name can be an IP address, such as **192.168.1.123** or a **ZeroConf** (**Bonjour**)
-  multicast protocal name, like **MyDesktopComputer.local**.
+  multicast protocol name, like **MyDesktopComputer.local**.
 - `iperf3_interval` (default: 1.0)  
   How often to poll the **iperf3_host** (in seconds).
 -  `max_signal_level` (default: -10.0)  
   Maximum signal level in dBm accepted from the **iwconfig** call.
   If the WiFi signal level is greater than this, a warning message will be sent to the log.
 - `min_signal_level` (default: -100.0)  
-  Mimimum signal level in dBm accepted from the **iwconfig** call.
+  Minimum signal level in dBm accepted from the **iwconfig** call.
   If the WiFi signal level is less than this, a warning message will be sent to the log.
 - `update_interval` (default: 1.0)  
   How often to log data (seconds).
 - `wifi_interface` (default ''):  
   WiFi interface to monitor (leave empty for auto-detect).
-  Otherwise give the Wifi device name, e.g., 'wlp8s0'.
+  Otherwise, give the Wi-Fi device name, e.g., 'wlp8s0'.
 
 These defaults are read from the **config/wifi_logger_config.yaml** file in the package.
 Feel free to update this file with your preferred default values so you don't have to
@@ -142,8 +142,8 @@ override them in the launch file or on the command line.
 
 #### Displaying the Text Overlay
 
-You can see the **iwconfig** data with additional data in realtime as an overlay
-in **rviz2**. First you must have the **rviz-2d-overlay-plugins** package installed.
+You can see the **iwconfig** data with additional data in real-time as an overlay
+in **rviz2**. First, you must have the **rviz-2d-overlay-plugins** package installed.
 ```bash
 sudo apt install ros-jazzy-rviz-2d-overlay-plugins
 ```
@@ -176,7 +176,7 @@ You may supply the following configuration parameters to the node:
   - min
 - `costmap_topic` (default: '/global_costmap/costmap')  
   There must be a costmap being published that this node can subscribe to.
-  That costmap will be used to provide the size, resolution and origin
+  That costmap will be used to provide the size, resolution, and origin
   of the costmap which is then used to position the text markers
   for visualization in **rviz2**.
 - `db_path` (default: 'wifi_data.db')  
