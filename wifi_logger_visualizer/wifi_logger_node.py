@@ -401,7 +401,7 @@ class WifiDataCollector(Node):
     def test_iperf3(self):
         """Test if iperf3 can connect to the specified host."""
         try:
-            result = subprocess.run(['iperf3', '-c', self.iperf3_host, '--bidir', '--time', '1'],
+            result = subprocess.run(['iperf3', '-c', self.iperf3_host, '--bidir', '--time', '1', '-O', '0', '-P', '1'],
                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
             self.get_logger().info(f"iperf3 test successful: {result.stdout}")
         except subprocess.CalledProcessError as e:
