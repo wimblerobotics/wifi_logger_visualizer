@@ -1,492 +1,257 @@
-# WiFi Logger and Visualizer for ROS2
+# WiFi Logger Visualizer for ROS 2
 
-This package provides ROS2 nodes for collecting, logging, and visualizing WiFi metrics of bit rate, link quality, and signal strength. 
-It integrates with odometry and, optionally, GPS data to associate WiFi metrics with spatial coordinates and provides visualization capabilities both in RViz2 and as a standalone chart.
-
-**NOTE for user os previous versions of this package. The database schema has changed for
-version 1.2 of this package. Please delete old databases in order to ensure compatability
-this this version.**
+This package provides ROS 2 nodes for collecting, logging, and visualizing WiFi metrics (bit rate, link quality, signal strength, and iperf3 throughput). It integrates with odometry and GPS data to associate WiFi metrics with spatial coordinates and provides visualization in RViz2 and as standalone charts.
 
 ---
 
-## **Features**
-- **WiFi Data Collection**: Uses `iwconfig` to collect WiFi metrics (bit rate, link quality, signal level).
-- **GPS and Odometry Integration**: Associates WiFi metrics with GPS and odometry data for spatial context.
-- **Data Logging**: Stores WiFi data in an SQLite database for later analysis.
-- **RViz2 Visualization**: Publishes overlay messages for real-time visualization of WiFi metrics in RViz2.
-- **Standalone Chart**: Generates a standalone chart for visualizing WiFi metrics.
-- **Dynamic Parameter Updates**: Allows runtime updates to parameters such as update intervals and signal strength thresholds.
-- **Configurable via YAML**: All parameters are configurable through a YAML file for ease of use as well as via the command line.
+## Features
+
+- **WiFi Data Collection**: Uses `iwconfig` and `iperf3` to collect WiFi metrics.
+- **GPS and Odometry Integration**: Associates WiFi metrics with spatial context.
+- **Data Logging**: Stores WiFi data in an SQLite database.
+- **RViz2 Visualization**: Publishes overlay and marker messages for real-time visualization.
+- **Standalone Charting**: Generates Matplotlib-based heatmaps.
+- **Dynamic Parameters**: Supports runtime parameter updates.
+- **Configurable**: All parameters are configurable via YAML and command line.
 
 ---
 
-## **Installation**
+## Installation
 
-### **Prerequisites**
-1. **ROS2 (Jazzy or Later)**: Ensure ROS2 Jazzy or a later version is installed on your system. Follow the [official ROS2 installation guide](https://docs.ros.org/en/jazzy/Installation.html).
+### Prerequisites
 
-2. **SQLite3**: Ensure SQLite3 is installed on your system:
-   ```bash
-   sqlite3 --version
-   ```
+- **ROS 2 Jazzy or later** ([Install Guide](https://docs.ros.org/en/jazzy/Installation.html))
+- **Python 3** (should be installed with ROS 2)
+- **SQLite3**:
+  ```bash
+  sudo apt install sqlite3 libsqlite3-dev
+  ```
+- **Python dependencies**:
+  ```bash
+  pip3 install numpy pyyaml matplotlib seaborn scipy
+  ```
+- **WiFi tools**:
+  ```bash
+  sudo apt install wireless-tools
+  ```
+- **rosdep** (for ROS dependencies):
+  ```bash
+  rosdep install --from-paths src --ignore-src -r -y
+  ```
 
-   If not installed, you can install it using the command.
+### Install and Build
+
 ```bash
-   sudo apt install sqlite3 libsqlite3-dev
-   ```
-
-1. **Python Dependencies**: The package uses Python 3 and requires the following libraries:
-   - `matplotlib`
-   - `numpy`
-   - `pyyaml`
-   - `seaborn`
-   - `scipi`
-   - `sqlite3`
-   
-   Install missing Python dependencies using:
-   ```bash
-   pip3 install numpy pyyaml matplotlib seaborn scipy
-   ```
-2. **WiFi Tools**: Ensure `iwconfig` is installed on your robot:
-   ```bash
-   sudo apt install wireless-tools
-   ```
+mkdir -p ~/wifi_logger_visualizer_ws/src
+cd ~/wifi_logger_visualizer_ws/src
+git clone git@github.com:wimblerobotics/wifi_logger_visualizer.git
+cd ~/wifi_logger_visualizer_ws
+rosdep install --from-paths src --ignore-src -r -y
+colcon build --symlink-install
+source ~/wifi_logger_visualizer_ws/install/setup.bash
+```
 
 ---
 
-### **Installation Steps**
-1. Clone the repository into your ROS2 workspace both on your desktop (or whereever you want to do visualization) and on your robot, where you will do data logging of the WiFi metrics.
-2. The following assumes you are use a directory in your home directory called **ros2_ws**. Change the following if you use a different workspace directory.
-   ```bash
-   cd ~/ros2_ws/src
-   git clone <repository-url> wimble_wifi_logger_visualizer
-   cd ..
-   rosdep install --from-paths src --ignore-src -r -y 
+## Usage
 
-   ```
+### Logging WiFi Data
 
-3. Build the package:
-   ```bash
-   cd ~/ros2_ws
-   colcon build --symlink-install
-   ```
+**NOTE** You must run ROS 2 nodes that publish the **/odom** topic and the map to odom transform**. 
+This is required in order to associate a location with the WiFi metrics gathered.
+Optionally, if GPS location data is also being published on the **/gps/fix** topic, starting before this node is run,
+the GPS location will also be associated the WiFi metrics.
 
-4. Source the workspace:
-   ```bash
-   source ~/ros2_ws/install/setup.bash
-   ```
+Run the logger node on your robot or where you want to gather WiFi metrics based on location:
 
----
-
-## **Usage**
-
-### **Capturing Wifi Data**
-
-To run the **wifi_logger_node.py** on your robot, you can use the provided launch file:
 ```bash
 ros2 launch wifi_logger_visualizer wifi_logger.launch.py
 ```
 
-The Wifi Logger node uses the **iwconfig** application to capture
-the bit rate, link quality and signal strength from the onboard wifi device.
-It requires odometry data to be published so that it can associate a location with
-the captured wifi data.
-If GPS location data is also being published, it will capture the GPS location as well.
-The odometry data will normally come from the motor driver on your robot, and you will usually be running the Nav2 stack
+You may provide the following configuration parameters to the node:
 
-The data is always written to the SQLite database. You can also specify that the data
-should be published as one or two ROS topics as well.
+- `db_path` (default: 'wifi_data.db')  
+  Path to the SQLite database.
+- `decimals_to_round_coordinates` (default: 3)  
+  Number of decimal places to round x and y coordinates.
+  Default: `3`. E.g., with a value of 3, a coordinate value of *123.456789* will be rounded to *123.457*.
+- `do_iperf3` (default: True)  
+  Whether to use **iperf3**, in client mode, to poll an **iperf3** server
+  to get actual send and receive bit rates between the computer running the logger
+  and the computer running the **iperf3** server.
+- `do_publish_metrics` (default: True)  
+  Whether to publish WiFi metrics on the **/wifi/metrics** topic.
+  If True, a message of type **Float32MultiArray** will be published containing the
+  following floating point values in this order:
+  - bit_rate (from **iwconfig**)
+  - link_quality (from **iwconfig**)
+  - signal_level (from **iwconfig**)
+  - sender_bitrate (from **iperf3**)
+  - receiver_bitrate (from **iperf3**)
+- `do_publish_overlay` (default: True)  
+  If True, a message of type **OverlayText** will be published on the **/wifi_logger/overlay** topic.
+  In that case, the following additional configuration parameters are available to
+  format the overlay message:
+  - `ov_horizontal_alignment` (default: 0)  
+  Horizontal alignment of the overlay. Options: `0` (LEFT), `1` (RIGHT), `2` (CENTER).
+  - `ov_vertical_alignment` (default: 3)  
+  Vertical alignment of the overlay. Options: `3` (TOP), `2` (CENTER), `4` (BOTTOM).
+  - `ov_horizontal_distance` (default: 10)  
+  Horizontal distance of the overlay center from the border, in pixels.
+  - `ov_vertical_distance` (default 10)  
+  Vertical distance of the overlay center from the border, in pixels.
+  - `ov_width_factor` (default 1.0)  
+  Factor to adjust the overlay canvas width. Can be used to widen the overlay.
+  - `ov_height_factor` (default: 1.0)  
+  Factor to adjust the overlay canvas height. Can be used to lengthen the overlay.
+  - `ov_font` (default: 'DejaVu Sans Mono')  
+  Font used in the overlay.
+  - `ov_font_size` (default: 4)  
+  Font size in the overlay.
+  - `ov_font_color` (default: '0.1 0.1 0.1 1.0')  
+  Font color in RGBA format.
+  - `ov_bg_color` (default: '1.0 1.0 1.0 0.5')  
+  Background color in RGBA format.
+  - `ov_do_short` (default: True)  
+  Whether to display a short WiFi summary in the overlay.
+  - `ov_do_full` (default: True)  
+  Whether to display full WiFi information in the overlay.
+- `iperf3_host` (default: '')  
+  If you want **iperf3** monitoring to gather actual send and receive bitrates,
+  rather than the theoretical bit rate provided by **iwconfig**,
+  fill in the name of the computer running **iperf3** in server mode.
+  The name can be an IP address, such as **192.168.1.123** or a **ZeroConf** (**Bonjour**)
+  multicast protocal name, like **MyDesktopComputer.local**.
+- `iperf3_interval` (default: 1.0)  
+  How often to poll the **iperf3_host** (in seconds).
+-  `max_signal_level` (default: -10.0)  
+  Maximum signal level in dBm accepted from the **iwconfig** call.
+  If the WiFi signal level is greater than this, a warning message will be sent to the log.
+- `min_signal_level` (default: -100.0)  
+  Mimimum signal level in dBm accepted from the **iwconfig** call.
+  If the WiFi signal level is less than this, a warning message will be sent to the log.
+- `update_interval` (default: 1.0)  
+  How often to log data (seconds).
+- `wifi_interface` (default ''):  
+  WiFi interface to monitor (leave empty for auto-detect).
+  Otherwise give the Wifi device name, e.g., 'wlp8s0'.
 
-#### **Configuration**
-You can edit the **config.yaml** file, located in the **config/wifi_logger_config.yaml**
-file before building this package to set the default parameters for this package.
-You can also override the configuration parameters as needed on the command line.
-This module specifically uses the following parameters:
+These defaults are read from the **config/wifi_logger_config.yaml** file in the package.
+Feel free to update this file with your preferred default values so you don't have to
+override them in the launch file or on the command line.
 
-* **db_path** (default: 'wifi_data.db')  
-  The location of the SQLite datbase.
-  If it does not exist, it will be created.
-  If an abolute pathname is not provided, it will be used as a relative pathname.
-* **decimals_round_coordinates** (default: 3)  
-  Round all pose **x** and **y** values to this many places to the right of the decimal point.
-  When entries are about to be put into the database, the database is checked to see if
-  there is already any entry for the current odometry pose. If so, the current entry is
-  replaced. Otherwise a new entry is created. As odometry can create poses with very
-  small differences in locations, such as **x=0.1234567** vs **x=0.1234568**, this parameter allows you to put pose values into more useful buckets.
-  A value of **3**, for instance, would round both of those **x** coordinates to a value
-  of 0.123.
-* **max_signal_level** (default: -20.0)  
-  Maximum expected signal level in dBm. Values higher than this will be rejected.
-* **min_signal_level** (default -100.0)  
-  Minimum expected signal level in dBm. Values lower than this will be rejected.
-* **publish_metrics** (default: true)  
-  If **true**, publish the raw WiFi bit rate, link quality and signal level data as an array of three
-  float values to the **/wifi/metrics** topic.
-  ```bash
-  ros2 topic echo /wifi/metrics 
-  layout:
-    dim: []
-    data_offset: 0
-  data:
-  - 960.7000122070312
-  - 1.0
-  - -31.0
-  ```
-* **publish_overlay** (default: true)  
-  If **true**, publish data to be visualized as a text overlay in RViz2 to the
-  **/wifi/overlay** topic.
-  ```bash
-  ros2 topic echo /wifi/overlay 
-  action: 0
-  width: 1200
-  height: 240
-  horizontal_distance: 10
-  vertical_distance: 10
-  horizontal_alignment: 0
-  vertical_alignment: 3
-  bg_color:
-    r: 0.0
-    g: 0.0
-    b: 0.0
-    a: 0.05000000074505806
-  line_width: 0
-  text_size: 12.0
-  font: DejaVu Sans Mono
-  fg_color:
-    r: 0.800000011920929
-    g: 0.800000011920929
-    b: 0.30000001192092896
-    a: 0.800000011920929
-  text: "<pre>(8.81,2.59)  Bit Rate: 1080.6  Quality: 1.0  db: -31.0\n(None, None, None)  Unknown  \nwlp9s0    IEEE 802.11  ESSID:\"livingro..."
+#### Displaying the Text Overlay
 
-  ```
-
-* **iperf3_host**  
-  The IP address or hostname of the iperf3 server to connect to.
-* **iperf3_interval**  
-  The interval (in seconds) at which iperf3 tests are run.
-* **do_iperf3**  
-  Boolean flag to enable or disable iperf3 tests.
-
-The following parameters can be changed dynamically using, e.g., the **rqt** program:
-* decimals_to_round_coordinates
-* max_signal_level
-* min_signal_level
-* update_interval
-
-#### **Additional Configuration for Publishing the Overlay Topic**
-If the configuration parameter **publish_overlay** is true, there are
-extra configuration parameters you can use to customize how the text
-is presented in the overlay.
-* **ov_horizontal_alignment** (default: 0)  
-  0 => left, 1 => right, 2 => center.
-* **ov_vertical_alignment** (default: 3)
-  2 => center, 3 => top, 4 => bottom  
-* **ov_horizontal_distance** (default: 10)  
-  Pixel distance of overlay from left edge of RViz2 window.
-* **ov_vertical_distance** (default: 10)  
-  Pixel distance of overlay from top edge of RViz2 window
-* **ov_width_factor** (default: 1.0)  
-  Scaling factor for the width of the overlay.
-* **ov_height_factor** (default: 1.0)  
-  Scaling factor for the height of the overlay.
-* **ov_font** (default: 'DejaVu Sans Mono')  
-  Name of the system font to be used.
-* **ov_font_size** (default: 12.0)  
-  Size of the system font to be used.
-* **ov_font_color** (default: '0.8 0.8 0.3 0.8')  
-  Color of the system font to be used (red, gree, blue, alpha).
-* **ov_bg_color** (default: "0.0 0.0 0.0 0.05")  
-  Background olor of the for the overlay to be used (red, gree, blue, alpha).
-* **ov_do_short** (default: True)  
-  If **True**, begin the overlay with the text with the **x** and **y** values
-  enclosed in parenthesis, followed by the bit rate, link quality and signal levels.
-  On a second line, show the GPS lattitude, longitude and altitude in parenthesis, followed the GPS status.
-
-* **ov_do_full** (default: True)  
-  If **True**, add to the text overlay the raw text result from the **iwconfig** result.
-
-An example of the overlay, with missing GPS data, is:
-![Sample Wifi Text Overlay](media/SampleTextOverlay.png)
-  
-
-### **Displaying Wifi Data as a Topological Map**
-
-To run the **wifi_visualizer_node.py**, you can use the provided launch file:
+You can see the **iwconfig** data with additional data in realtime as an overlay
+in **rviz2**. First you must have the **rviz-2d-overlay-plugins** package installed.
 ```bash
-ros2 launch wifi_logger_visualizer wifi_visualizer.launch.py
+sudo apt install ros-jazzy-rviz-2d-overlay-plugins
 ```
 
-The Wifi Visualizer node begins by listenening for an existing costmap
-(by default it's the costmap published on the **/global_costmap/costmap** topic)
-in order to create a new costmap of the same size, resolution and origin.
-Then a connection is made to the database produced by the Wifi Logger node.
-That database may be a saved one or it may contain live data.
+While the logger is running, if **do_publish_overlay** is True,
+in **rviz2** you can display the overlay by selecting the **/wifi_logger/overlay** topic
+for display. It will look something like:
+![Overlay](media/WifiOverlay.png)
 
-This node will pick up the last time stamp recorded in the database, generate a
-visualization of the data as a costmap, and will periodically look to see if
-the database has changed (i.e., if the Wifi Logger node is making changes to
-the database). If the database changes, the costmap will be updated.
+### Visualizing WiFi Data
 
-#### **Configuration**
-You can edit the **configuration.yaml** file, located in the **config/wifi_logger_config.yaml**
-file before building this package to set the default parameters for this package.
-You can also override the configuration parameters as needed on the command line.
-This module specifically uses the following parameters:
-* **costmap_topic** (default: '/global_costmap/costmap')  
-  The costmap topic to subscribe to in order to get the size, resolution and
-  origin to use for the costmaps to be published by this module.
-* **db_check_frequency** (default: 2.0 Hz)  
-  How often to check the database for changes.
-* **db_path** (default: 'wifi_data.db')  
-  The location of the SQLite datbase.
-  If an abolute pathname is not provided, it will be used as a relative pathname.
-* **enable_bit_rate** (default: True)  
-  If true, publish a costmap showing the interpolated bit rate readings
-  on the **/wifi_bit_rate_costmap** topic.
-* **enable_link_quality** (default: True)  
-  If true, publish a costmap showing the interpolated link quality readings
-  on the **/wifi_link_quality_costmap** topic.
-* **enable_signal_level** (default: True)  
-  If true, publish a costmap showing the interpolated signal level readings
-  on the **/wifi_signal_level_costmap** topic.
-* **max_interpolation_distance** (default: 1.0 meters)  
-  The costmap will attempt to produce a smooth gradient between actual readings
-  in the database. Each reading in the database will be interpolated towards
-  other readings in the database that are within this distance.
-* **publication_frequency** (default: 1.0 Hz)  
-  How often to update the published costmaps.
+You can visualize the logged data by running the **heatmap** node
+on a machine that has visibility to the database created by the logger,
+described above. 
+You can view it as a standalone map or as a marker list in rviz2
 
-An example of the signal strength costmap displayed in RViz2 is:
-![Sample Wifi Signal Strength Costmap](media/costmap_signal_strength.png)
+#### As a Standalone Heatmap
 
-
-### **Displaying Wifi Data as a Heat map**
-
-To run the **heat_mapper_node.py**, you can use the provided launch file:
 ```bash
-ros2 launch wifi_logger_visualizer heat_mapper.launch.py
+ros2 launch wifi_logger_visualizer heat_mapper.launch.py standalone:=true
 ```
 
-The Wifi Heat Mapper node runs in one of two modes.
-In **standalone** mode, it produces a **MatPlotLib** based chart showing a
-two dimensional chart of the signal strength data.
-When not in **standalone** mode, the node begins by listenening for an existing costmap
-(by default it's the costmap published on the **/global_costmap/costmap** topic)
-in order to create a new costmap of the same size, resolution and origin.
-Then a connection is made to the database produced by the Wifi Logger node.
-That database may be a saved one or it may contain live data.
+You may supply the following configuration parameters to the node:
 
-This node will pick up the last time stamp recorded in the database, generate a
-visualization of the data as a costmap, and will periodically look to see if
-the database has changed (i.e., if the Wifi Logger node is making changes to
-the database). If the database changes, the costmap will be updated.
+- `aggregation_type` (default: max)  
+  Which kind of value for the **heatmap_field** to display.
+  Valid aggregation_types are:
+  - average
+  - max
+  - min
+- `costmap_topic` (default: '/global_costmap/costmap')  
+  There must be a costmap being published that this node can subscribe to.
+  That costmap will be used to provide the size, resolution and origin
+  of the costmap which is then used to position the text markers
+  for visualization in **rviz2**.
+- `db_path` (default: 'wifi_data.db')  
+  Path to the SQLite database.
+- `do_publish_markers` (default: True)  
+  If true, a list of cube-shaped markers will be published to the **/wifi_heat_markers** topic. Each cube will be centered at the location where
+  a reading took place and will be colorized to show how close to the minimum
+  or maximum value the reading was at that location.
+- `do_publish_text_markers` (default: True)  
+  If true, a list of text markers will be published to the **/wifi_heat_text_markers** topic.
+  Each text marker will be centered at the location where a reading took
+  place, will show the value (for rate values it will be in mega bits
+  per second), and will be colorized to show how close to the minimum
+  or maximum value the reading was at that location.
+- `heatmap_field` (default: 'iperf3_sender_bitrate')  
+  Which field from the database to visualize. 
+  Valid field names are:
+  - bit_rate
+  - iperf3_receiver_bitrate
+  - iperf3_sender_bitrate
+  - link_quality
+  - signal_level
+- `scale_factor` (default: 1.0)  
+  For scaling the data values.
+- `standalone` (default: True)
+  If True, a **MathPlotLib** plot will be shown in its own window.
+  If False, the rviz2 markers will be published.
+- `text_size` (default 0.08)  
+  The text size, in points, to be used for text generated in the
+  **/wifi_heat_text_markers** topic.
 
-#### **Configuration**
-You can edit the **configuration.yaml** file, located in the **config/wifi_logger_config.yaml**
-file before building this package to set the default parameters for this package.
-You can also override the configuration parameters as needed on the command line.
-This module specifically uses the following parameters:
-* **costmap_topic** (default: '/global_costmap/costmap')  
-  The costmap topic to subscribe to in order to get the size, resolution and
-  origin to use for the costmaps to be published by this module.
-  Only used if **standalone** is False.
-* **db_check_frequency** (default: 2.0 Hz)  
-  How often to check the database for changes.
-  Only used if **standalone** is False.
-* **db_path** (default: 'wifi_data.db')  
-  The location of the SQLite datbase.
-  If an abolute pathname is not provided, it will be used as a relative pathname.
-* **do_publish_markers** (default: True)
-  If True, publish a heat map list of RViz2 markers showing the signal level readings
-  as cubes on the /wifi_heat_markers topic. 
-  The size of each marker cube is twice the resolution size of the costmap
-  so that they will be more visible.
-  The markers will be colorized so that signal levels
-  close to the mininum signal level will be read and signal levels near the
-  maximum signal level will be green.
-  The published costmap as the **map** frame as its frame id.
-  Only used if **standalone** is False.
-* **do_publish_text_markers** (default: True)
-  If True, publish a heat map list of RViz2 markers showing the dBm signal level readings
-  as text strings on the /wifi_heat_markers topic. 
-  The markers will be colorized so that signal levels
-  close to the mininum signal level will be read and signal levels near the
-  maximum signal level will be green.
-  The published costmap as the **map** frame as its frame id.
-  The text size of each marker is that of the **text_size** parameter.
-  Only used if **standalone** is False and **do_publish_markers** is True.
-* **scale_factor** (default: 1.0)  
-  When producing the **standalone** heat map, multiply all database values by this scale value.
-* **standalone** (default: False)  
-  If True, produce only a **MatPlotLib** window showing the heat map. 
-  If False, produce a costmap for visualization in RViz2.
-* **text_size** (default: 0.08)  
-  The text size (in points) of the text generated for each text marker as
-  described in the **do_publish_text_markers** parameter.
-* **heatmap_field** (default: 'signal_level')  
-  The field to visualize as a heatmap. Supported fields are:
-  - `bit_rate`: The WiFi bit rate (in Mbps).
-  - `link_quality`: The WiFi link quality (as a ratio).
-  - `signal_level`: The WiFi signal level (in dBm).
-  - `iperf3_sender_bitrate`: The iperf3 sender bitrate (in Mbps).
-  - `iperf3_receiver_bitrate`: The iperf3 receiver bitrate (in Mbps).
+An example of a standalone plot is:
+![Standalone](media/iperf3_sender_bitrate_max.png)
 
-#### Example Configuration
-To visualize the `bit_rate` field as a heatmap, set the parameter as follows:
-```bash
-ros2 param set /heat_mapper_node heatmap_field bit_rate
-```
+An example of text markers showing in **rviz2** is:
+![Text markers](media/SenderTextMarkers.png)
 
-The default field is `signal_level`. If an invalid field is specified, the node will default to `signal_level` and log an error.
-
-An example of the **standalone** heat map is:
-![Sample Standalone Heat Map](media/heatmap_stanalone.png)
-
-An example of the RViz2 cubical markers (i.e. NOT **standalone**) displayed is:
-![Sample Heatmap as a Costmap](media/heatmap_markers.png)
-
-An example of the RViz2 text markers (i.e. NOT **standalone**) displayed is:
-![Sample Heatmap as a Costmap](media/heatmap_text_markers.png)
-
-### Updated /wifi/metrics Topic
-
-The `/wifi/metrics` topic now includes two additional fields:
-- **`iperf3_sender_bitrate`**: The bitrate reported by iperf3 for the sender (in Mbps).
-- **`iperf3_receiver_bitrate`**: The bitrate reported by iperf3 for the receiver (in Mbps).
-
-The full data array published to `/wifi/metrics` now contains the following fields:
-1. `bit_rate`: The WiFi bit rate (in Mbps).
-2. `link_quality`: The WiFi link quality (as a ratio).
-3. `signal_level`: The WiFi signal level (in dBm).
-4. `iperf3_sender_bitrate`: The iperf3 sender bitrate (in Mbps).
-5. `iperf3_receiver_bitrate`: The iperf3 receiver bitrate (in Mbps).
-
-Example message:
-```bash
-layout:
-  dim: []
-  data_offset: 0
-  data:
-  - 960.7  # bit_rate
-  - 1.0    # link_quality
-  - -31.0  # signal_level
-  - 53.6   # iperf3_sender_bitrate
-  - 54.4   # iperf3_receiver_bitrate
-```
-
-### **Database**
-WiFi data is stored in an SQLite database. 
-The schema is:
-```bash
-sqlite> .schema
-CREATE TABLE wifi_data (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp TEXT NOT NULL,
-                    x REAL,
-                    y REAL,
-                    latitude REAL,
-                    longitude REAL,
-                    gps_status INTEGER,
-                    gps_service INTEGER,
-                    bit_rate REAL,
-                    link_quality REAL,
-                    signal_level REAL,
-                    iperf3_sender_bitrate REAL,
-                    iperf3_receiver_bitrate REAL,
-                    iperf3_ip TEXT
-                );
-CREATE TABLE sqlite_sequence(name,seq);
-```
 
 ---
 
-### New Parameters
+## Troubleshooting
 
-- **`iperf3_host`**: The IP address or hostname of the iperf3 server to connect to.
-- **`iperf3_interval`**: The interval (in seconds) at which iperf3 tests are run.
-- **`do_iperf3`**: Boolean flag to enable or disable iperf3 tests.
-
-### New Database Fields
-
-- **`iperf3_sender_bitrate`**: The bitrate reported by iperf3 for the sender (in Mbps).
-- **`iperf3_receiver_bitrate`**: The bitrate reported by iperf3 for the receiver (in Mbps).
-- **`iperf3_ip`**: The IP address of the iperf3 server.
-
-### New Functionality
-
-If `do_iperf3` is set to `true` and `iperf3_host` is configured, the node will periodically run `iperf3 -c <iperf3_host> --bidir` at the interval specified by `iperf3_interval`. The results (sender bitrate, receiver bitrate, and server IP) are stored in the database and can be used for analysis.
+- **WiFi interface not detected**: Specify `wifi_interface` in the config or command line.
+- **Overlay not visible in RViz2**: Ensure `rviz_2d_overlay_plugins` is installed and `/wifi/overlay` is subscribed.
+- **Database errors**: Check `db_path` and permissions.
+- **Parameter type errors**: Always specify float parameters as floats (e.g., `12.0` not `12`).
+- **iperf3 is slow**: The node uses `-t 1 -O 0 -P 1` for fast, single-attempt tests. Ensure your iperf3 server is reachable and not overloaded.
 
 ---
 
-## **Modules**
+## Related Resources
 
-### **1. `wifi_logger_visualizer/wifi_logger_node.py`**
-The main ROS2 node that:
-- Collects WiFi metrics using `iwconfig`.
-- Associates WiFi data with GPS and odometry coordinates.
-- Publishes metrics and overlay messages.
-- Stores data in an SQLite database.
-
-### **2. `database_manager.py`**
-Handles all database operations, including:
-- Creating the database schema.
-- Inserting WiFi data.
-- Cleaning up old records.
-
-### **3. `wifi_data_fetcher.py`**
-Fetches WiFi metrics using `iwconfig` and validates the data.
+- [ROS 2 Documentation](https://docs.ros.org/en/rolling/)
+- [rviz_2d_overlay_plugins](https://github.com/PickNikRobotics/rviz_2d_overlay_plugins)
+- [SQLite3 Documentation](https://www.sqlite.org/docs.html)
+- [Python sqlite3 module](https://docs.python.org/3/library/sqlite3.html)
+- [Matplotlib](https://matplotlib.org/)
+- [Seaborn](https://seaborn.pydata.org/)
+- [iwconfig man page](https://linux.die.net/man/8/iwconfig)
+- [iperf3 Documentation](https://iperf.fr/)
+- [Bonjour/ZeroConf Documentation](https://help.ubuntu.com/community/Avahi)
 
 ---
 
-## **Visualization in RViz2**
-To visualize WiFi metrics in RViz2:
-1. Start RViz2:
-   ```bash
-   rviz2
-   ```
-2. Add the `OverlayText` display plugin.
-3. Subscribe to the `/wifi/overlay` topic to see real-time WiFi metrics.
+## License
+
+MIT License. See `LICENSE` for details.
 
 ---
 
-## **Dynamic Parameter Updates**
-You can update parameters at runtime using the `ros2 param` command. For example:
-```bash
-ros2 param set /wifi_logger update_interval 2.0
-```
+## Acknowledgments
 
----
-
-## **Troubleshooting**
-
-### **1. WiFi Interface Not Detected**
-Ensure your WiFi interface is active and visible to `iwconfig`. You can manually specify the interface in the YAML configuration file.
-
-### **2. RViz2 Overlay Not Displayed**
-Ensure the `rviz_2d_overlay_plugins` package is installed and the `/wifi/overlay` topic is subscribed in RViz2.
-
-### **3. Database Errors**
-Check the database path in the YAML configuration file and ensure the directory is writable.
-
----
-
-## **License**
-This package is licensed under the MIT License. See the `LICENSE` file for details.
-
----
-
-## **Contributing**
-Contributions are welcome! Please submit issues or pull requests on the GitHub repository.
-
----
-
-## **Acknowledgments**
-Many thanks to **Sergei Grichine** for additions, improvements and feedback during
-development of this package. Please visit this github link and give him a star.
+Special thanks to Sergei Grichine for contributions and feedback.  
 [Sergei Grichine's GitHub](https://github.com/slgrobotics/robots_bringup)
 
-This package uses:
-- ROS2 Jazzy for robotics middleware.
-- `rviz_2d_overlay_plugins` for visualization.
-- `iwconfig` for WiFi data collection.
+---
+
+If you have further questions or need more troubleshooting tips, please open an issue or consult the links above!

@@ -114,7 +114,7 @@ class WifiDataCollector(Node):
                 return float(default)
 
         # Declare parameters and load from configuration file
-        self.db_path = self.declare_and_get_param('db_path', config.get('db_path', '/home/ros/wifi_logger_visualizer_ws/wifi_data.db'))
+        self.db_path = self.declare_and_get_param('db_path', config.get('db_path', 'wifi_data.db'))
         self.wifi_interface = self.declare_and_get_param('wifi_interface', config.get('wifi_interface', ''))
         self.min_signal_level = to_float(self.declare_and_get_param('min_signal_level', config.get('min_signal_level', -100.0)), -100.0)
         self.max_signal_level = to_float(self.declare_and_get_param('max_signal_level', config.get('max_signal_level', -10.0)), -10.0)
@@ -212,19 +212,21 @@ class WifiDataCollector(Node):
         )
 
         # WiFi metrics publisher
-        self.metrics_publisher = self.create_publisher(
-            Float32MultiArray,
-            '/wifi_logger/metrics',
-            10
-        )
+        if self.do_publish_metrics:
+            self.metrics_publisher = self.create_publisher(
+                Float32MultiArray,
+                '/wifi_logger/metrics',
+                10
+            )
 
         # Overlay publisher
-        self.overlay_publisher = self.create_publisher(
-            OverlayText,
-            '/wifi_logger/overlay',
-            10
-        )
-
+        if self.do_publish_overlay:
+            self.overlay_publisher = self.create_publisher(
+                OverlayText,
+                '/wifi_logger/overlay',
+                10
+            )
+            
         # TF2 buffer and listener
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
@@ -514,7 +516,8 @@ class WifiDataCollector(Node):
             # Populate the data array with 5 values: bit_rate, link_quality, signal_level, sender_bitrate, receiver_bitrate
             msg.data = [bit_rate, link_quality, signal_level, sender_bitrate, receiver_bitrate]
 
-            self.metrics_publisher.publish(msg)
+            if self.publish_metrics:
+                self.metrics_publisher.publish(msg)
         except Exception as e:
             self.get_logger().error(f"Unexpected error publishing WiFi data: {e}")
 
