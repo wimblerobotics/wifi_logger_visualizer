@@ -17,8 +17,6 @@ import os
 from ament_index_python.packages import get_package_share_directory
 import xml.etree.ElementTree as ET
 from datetime import datetime
-import matplotlib
-
 
 class HeatMapperNode(Node):
     def __init__(self):
@@ -52,15 +50,15 @@ class HeatMapperNode(Node):
 
         # Log parameter values
         self.get_logger().info(f"Parameter values:")
+        self.get_logger().info(f"  aggregation_type: {self.aggregation_type}")
         self.get_logger().info(f"  costmap_topic: {self.costmap_topic}")
         self.get_logger().info(f"  db_path: {self.db_path}")
         self.get_logger().info(f"  do_publish_markers: {self.do_publish_markers}")
         self.get_logger().info(f"  do_publish_text_markers: {self.do_publish_text_markers}")
+        self.get_logger().info(f"  heatmap_field: {self.heatmap_field}")
         self.get_logger().info(f"  scale_factor: {self.scale_factor}")
         self.get_logger().info(f"  standalone: {self.standalone}")
         self.get_logger().info(f"  text_size: {self.text_size} (type: {type(self.text_size)})")
-        self.get_logger().info(f"  heatmap_field: {self.heatmap_field}")
-        self.get_logger().info(f"  aggregation_type: {self.aggregation_type}")
         self.get_logger().info(f"Heatmap field: {self.heatmap_field}, Aggregation type: {self.aggregation_type}")
         
         # Initialize costmap dimensions
@@ -139,7 +137,7 @@ class HeatMapperNode(Node):
         """Periodic callback to publish heatmap markers."""
         # Get data from database
         data = self.get_data()
-        if not data:
+        if data is None or len(data) == 0:
             return
             
         # Create and publish markers
@@ -170,8 +168,20 @@ class HeatMapperNode(Node):
                 query = f"SELECT x, y, {self.heatmap_field}_{aggregation_type} FROM wifi_data"
 
             cursor.execute(query)
-            rows = cursor.fetchall()
+            raw_rows = cursor.fetchall()
+            # Filter out rows where any value is None
+            rows = [row for row in raw_rows if None not in row]
+            if not rows:
+                self.get_logger().warn("No valid data found in database")
+                conn.close()
+                return
+
+            rows = np.array(rows)
+            rows = np.round(rows, decimals=1) * self.scale_factor
+
             conn.close()
+            row_count = len(rows)
+            self.get_logger().info(f"Number of rows: {row_count}")
             return rows
         except sqlite3.Error as e:
             self.get_logger().error(f"Error retrieving wifi data: {e}")
@@ -179,7 +189,7 @@ class HeatMapperNode(Node):
 
     def publish_heatmap_costmap(self, data):
         """Publish heatmap as a MarkerArray with value markers and text annotations."""
-        if not data:
+        if data is None or data.size == 0:
             self.get_logger().warn('No data to publish')
             return
 
@@ -278,7 +288,15 @@ class HeatMapperNode(Node):
             else:
                 query = f"SELECT x, y, {self.heatmap_field}_{aggregation_type} FROM wifi_data"
             cursor.execute(query)
-            rows = np.array(cursor.fetchall())
+            raw_rows = cursor.fetchall()
+            # Filter out rows where any value is None
+            rows = [row for row in raw_rows if None not in row]
+            if not rows:
+                self.get_logger().warn("No valid data found in database")
+                conn.close()
+                return
+
+            rows = np.array(rows)
             rows = np.round(rows, decimals=1) * self.scale_factor
 
             conn.close()
@@ -358,6 +376,7 @@ class HeatMapperNode(Node):
             plt.ylabel('Y-axis Travel')
 
             # Display the heatmap
+            plt.savefig("heatmap.png")
             plt.show()
 
         except sqlite3.Error as e:

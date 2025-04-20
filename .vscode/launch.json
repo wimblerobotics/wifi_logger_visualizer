@@ -14,15 +14,27 @@
             "args": ["--ros-args", "-p", "heatmap_field:=iperf3_sender_bitrate", "-p", "aggregation_type:=max"],
             "cwd": "/home/ros/wifi_logger_visualizer_ws"
         },
+        // {
+        //     "name": "ROS: Launch heat_mapper",
+        //     "type": "ros",
+        //     "request": "launch",
+        //     "target": "${workspaceFolder}/launch/heat_mapper.launch.py",
+        //     "env": {
+        //         "PYTHONPATH": "${workspaceFolder}/install/wifi_logger_visualizer/lib/python3.10/site-packages:${env:PYTHONPATH}"
+        //     },
+        // },
         {
             "name": "ROS: Launch heat_mapper",
-            "type": "ros",
+            "type": "python",
             "request": "launch",
-            "target": "src/wifi_logger_visualizer/launch/heat_mapper.launch.py",
-            "env": {
-                "PYTHONPATH": "${workspaceFolder}/install/wifi_logger_visualizer/lib/python3.10/site-packages:${env:PYTHONPATH}"
-            },
-        },
+            "program": "/opt/ros/jazzy/bin/ros2",
+            "args": [
+                "launch",
+                "wifi_logger_visualizer",
+                "heat_mapper.launch.py"
+            ],
+            "console": "integratedTerminal"
+        }
         // {
         //     "name": "Debug WiFi Heat Mapper Node",
         //     "type": "debugpy",

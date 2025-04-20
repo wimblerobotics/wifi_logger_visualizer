@@ -79,6 +79,8 @@ class WifiDataCollector(Node):
         """
         super().__init__('wifi_logger_node')
 
+        self.current_pose = None  # <-- Add this line
+
         # Log source file name, version, and compile time
         source_file = os.path.basename(__file__)
         package_xml_path = os.path.join(get_package_share_directory('wifi_logger_visualizer'), 'package.xml')
@@ -538,9 +540,10 @@ class WifiDataCollector(Node):
 
             msg.text = "<pre>"
             if self.ov_do_short:
-                msg.text += f"({self.x},{self.y})  Bit Rate: {bit_rate}  Quality: {link_quality}  db: {signal_level}\n"
-                msg.text += f"({self.latitude}, {self.longitude}, {self.altitude})  {self.gps_status_str()}  {self.gps_service_str()}\n"
-                nlines += 2
+                msg.text += f"iperf3 to: {self.iperf3_ip}, sender: {self.iperf3_sender_bitrate:4.1f} Mbps, receiver: {self.iperf3_receiver_bitrate:4.1f} Mbps\n" 
+                msg.text += f"({self.x:4.3f},{self.y:4.3f}), Bit Rate: {bit_rate:4.1f}, Quality: {link_quality:2.1f}, db: {signal_level:2.1f}\n"
+                msg.text += f"(lat: {self.latitude}, lon: {self.longitude}, alt: {self.altitude})  stat: {self.gps_status_str()}  {self.gps_service_str()}\n"
+                nlines += 3
             if self.ov_do_full:
                 msg.text += iwconfig_output.rstrip()
                 nlines += 8
