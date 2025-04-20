@@ -376,7 +376,7 @@ class HeatMapperNode(Node):
             plt.ylabel('Y-axis Travel')
 
             # Display the heatmap
-            plt.savefig("heatmap.png")
+            plt.savefig(f"{self.heatmap_field}_{self.aggregation_type}_heatmap.png")
             plt.show()
 
         except sqlite3.Error as e:
