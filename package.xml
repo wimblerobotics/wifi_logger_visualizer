@@ -2,9 +2,9 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>wifi_logger_visualizer</name>
-  <version>1.2.0</version>
+  <version>1.3.0</version>
   <description>WiFi signal strength logger and visualizer for ROS2</description>
-  <maintainer email="your.email@example.com">Your Name</maintainer>
+  <maintainer email="mike@wimblerobotics.com">Michael Wimble</maintainer>
   <license>MIT</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
