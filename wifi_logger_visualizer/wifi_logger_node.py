@@ -126,7 +126,7 @@ class WifiDataCollector(Node):
         self.do_publish_overlay = self.declare_and_get_param('publish_overlay', config.get('publish_overlay', True))
 
         # Declare iperf3-related parameters
-        self.iperf3_host = self.declare_and_get_param('iperf3_host', config.get('iperf3_host', ''))
+        self.iperf3_host = self.declare_and_get_param('iperf3_host', config.get('iperf3_host', 'amdc'))
         self.iperf3_interval = self.declare_and_get_param('iperf3_interval', config.get('iperf3_interval', 1.0))
         self.do_iperf3 = self.declare_and_get_param('do_iperf3', config.get('do_iperf3', True))
 
@@ -464,7 +464,7 @@ class WifiDataCollector(Node):
     def timer_callback(self):
         """
         Periodic callback to collect and store WiFi data.
-
+~
         This method collects WiFi metrics, associates them with GPS and odometry data,
         publishes the metrics and overlay messages, and stores the data in the database.
         """
@@ -483,33 +483,36 @@ class WifiDataCollector(Node):
 
         sender_bitrate = self.iperf3_sender_bitrate if self.iperf3_sender_bitrate is not None else float('nan')
         receiver_bitrate = self.iperf3_receiver_bitrate if self.iperf3_receiver_bitrate is not None else float('nan')
+        bit_rate = float('nan') if bit_rate is None else bit_rate
+        link_quality = float('nan') if link_quality is None else link_quality
+        signal_level = float('nan') if signal_level is None else signal_level
         self.publish_wifi_data(bit_rate, link_quality, signal_level, sender_bitrate, receiver_bitrate)
 
         if self.do_publish_overlay:
             self.publish_wifi_overlay(bit_rate, link_quality, signal_level, self.wifi_data_fetcher.iwconfig_output)
 
-        if all(v is not None for v in [bit_rate, link_quality, signal_level]):
-            if self.iperf3_sender_bitrate is not None and self.iperf3_receiver_bitrate is not None:
-                self.database_manager.insert_data(
-                    self.x, self.y, self.latitude, self.longitude, self.gps_status, self.gps_service,
-                    bit_rate, link_quality, signal_level,
-                    self.iperf3_sender_bitrate, self.iperf3_receiver_bitrate, self.iperf3_ip
-                )
-            else:
-                self.database_manager.insert_data(
-                    self.x, self.y, self.latitude, self.longitude, self.gps_status, self.gps_service,
-                    bit_rate, link_quality, signal_level
-                )
-            self.get_logger().info(
-                f"X: {self.x}, Y: {self.y}, "
-                # f"Bit Rate: {bit_rate} Mb/s, "
-                # f"Link Quality: {link_quality:.2f}, "
-                # f"Signal Level: {signal_level} dBm",
-                f"Sender Bitrate: {self.iperf3_sender_bitrate} Mbps, "
-                f"Receiver Bitrate: {self.iperf3_receiver_bitrate} Mbps"
+        # if all(v is not None for v in [bit_rate, link_quality, signal_level]):
+        if self.iperf3_sender_bitrate is not None and self.iperf3_receiver_bitrate is not None:
+            self.database_manager.insert_data(
+                self.x, self.y, self.latitude, self.longitude, self.gps_status, self.gps_service,
+                bit_rate, link_quality, signal_level,
+                self.iperf3_sender_bitrate, self.iperf3_receiver_bitrate, self.iperf3_ip
             )
         else:
-            self.get_logger().warn("Could not retrieve all WiFi data, skipping insertion")
+            self.database_manager.insert_data(
+                self.x, self.y, self.latitude, self.longitude, self.gps_status, self.gps_service,
+                bit_rate, link_quality, signal_level
+            )
+        self.get_logger().info(
+            f"X: {self.x}, Y: {self.y}, "
+            # f"Bit Rate: {bit_rate} Mb/s, "
+            # f"Link Quality: {link_quality:.2f}, "
+            # f"Signal Level: {signal_level} dBm",
+            f"Sender Bitrate: {self.iperf3_sender_bitrate} Mbps, "
+            f"Receiver Bitrate: {self.iperf3_receiver_bitrate} Mbps"
+        )
+        # else:
+        #     self.get_logger().warn("Could not retrieve all WiFi data, skipping insertion")
         
     def publish_wifi_data(self, bit_rate, link_quality, signal_level, sender_bitrate, receiver_bitrate):
         """Publish WiFi data including iperf3 results."""
@@ -518,7 +521,7 @@ class WifiDataCollector(Node):
             # Populate the data array with 5 values: bit_rate, link_quality, signal_level, sender_bitrate, receiver_bitrate
             msg.data = [bit_rate, link_quality, signal_level, sender_bitrate, receiver_bitrate]
 
-            if self.publish_metrics:
+            if self.do_publish_metrics:
                 self.metrics_publisher.publish(msg)
         except Exception as e:
             self.get_logger().error(f"Unexpected error publishing WiFi data: {e}")

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # --- Configuration ---
-WIFI_INTERFACE="wlp9s0" # Your WiFi interface name
+WIFI_INTERFACE="wlp8s0" # Your WiFi interface name
 CONNECTION_NAME="livingroom" # Your NetworkManager connection name
 SIGNAL_THRESHOLD="-70" # Signal level (dBm) threshold to trigger reconnect
 CHECK_INTERVAL="10" # How often to check (seconds)
