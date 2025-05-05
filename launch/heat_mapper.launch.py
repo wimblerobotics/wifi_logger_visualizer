@@ -1,3 +1,4 @@
+from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, ExecuteProcess
 from launch.substitutions import LaunchConfiguration, FindExecutable
@@ -12,16 +13,16 @@ def generate_launch_description():
         description='Whether to publish a costmap (true) or display matplotlib visualization (false)'
     )
 
-    # Get the current working directory for the default db_path
-    current_dir = os.getcwd()
-    default_db_path = os.path.join(current_dir, 'wifi_data.db')
+    package_name = 'wifi_logger_visualizer'
+    package_dir = get_package_share_directory(package_name)
 
-    # Declare the db_path argument
+    # Declare launch arguments for command-line overrides
     db_path_arg = DeclareLaunchArgument(
         'db_path',
-        default_value=default_db_path,
-        description='Path to the SQLite database file'
+        default_value=os.path.join(package_dir, 'wifi_data.db'),
+        description='Path to the SQLite database file.'
     )
+
 
     # Declare the scale_factor argument
     scale_factor_arg = DeclareLaunchArgument(

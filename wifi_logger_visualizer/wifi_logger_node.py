@@ -480,6 +480,9 @@ class WifiDataCollector(Node):
 
         self.x, self.y = tuple(round(x, self.decimals_to_round_coordinates) for x in self.current_pose)  # Round coordinates
         bit_rate, link_quality, signal_level = self.wifi_data_fetcher.get_wifi_data()
+        bit_rate = bit_rate if bit_rate is not None else float('nan')
+        link_quality = link_quality if link_quality is not None else float('nan')
+        signal_level = signal_level if signal_level is not None else float('nan')
 
         sender_bitrate = self.iperf3_sender_bitrate if self.iperf3_sender_bitrate is not None else float('nan')
         receiver_bitrate = self.iperf3_receiver_bitrate if self.iperf3_receiver_bitrate is not None else float('nan')
@@ -505,8 +508,8 @@ class WifiDataCollector(Node):
                 # f"Bit Rate: {bit_rate} Mb/s, "
                 # f"Link Quality: {link_quality:.2f}, "
                 # f"Signal Level: {signal_level} dBm",
-                f"Sender Bitrate: {self.iperf3_sender_bitrate} Mbps, "
-                f"Receiver Bitrate: {self.iperf3_receiver_bitrate} Mbps"
+                f"Sender Bitrate: {sender_bitrate} Mbps, "
+                f"Receiver Bitrate: {receiver_bitrate} Mbps"
             )
         else:
             self.get_logger().warn("Could not retrieve all WiFi data, skipping insertion")
@@ -518,7 +521,7 @@ class WifiDataCollector(Node):
             # Populate the data array with 5 values: bit_rate, link_quality, signal_level, sender_bitrate, receiver_bitrate
             msg.data = [bit_rate, link_quality, signal_level, sender_bitrate, receiver_bitrate]
 
-            if self.publish_metrics:
+            if self.do_publish_metrics:
                 self.metrics_publisher.publish(msg)
         except Exception as e:
             self.get_logger().error(f"Unexpected error publishing WiFi data: {e}")
@@ -540,7 +543,10 @@ class WifiDataCollector(Node):
 
             msg.text = "<pre>"
             if self.ov_do_short:
-                msg.text += f"iperf3 to: {self.iperf3_ip}, sender: {self.iperf3_sender_bitrate:4.1f} Mbps, receiver: {self.iperf3_receiver_bitrate:4.1f} Mbps\n" 
+                iperf3_ip = self.iperf3_ip if self.iperf3_ip is not None else 'NO iperf3'
+                sender_bitrate = self.iperf3_sender_bitrate if self.iperf3_sender_bitrate is not None else float('nan')
+                receiver_bitrate = self.iperf3_receiver_bitrate if self.iperf3_receiver_bitrate is not None else float('nan')
+                msg.text += f"iperf3 to: {iperf3_ip}, sender: {sender_bitrate:4.1f} Mbps, receiver: {receiver_bitrate:4.1f} Mbps\n" 
                 msg.text += f"({self.x:4.3f},{self.y:4.3f}), Bit Rate: {bit_rate:4.1f}, Quality: {link_quality:2.1f}, db: {signal_level:2.1f}\n"
                 msg.text += f"(lat: {self.latitude}, lon: {self.longitude}, alt: {self.altitude})  stat: {self.gps_status_str()}  {self.gps_service_str()}\n"
                 nlines += 3

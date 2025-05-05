@@ -61,7 +61,7 @@ def generate_launch_description():
 
     iperf3_host_arg = DeclareLaunchArgument(
         'iperf3_host',
-        default_value='',
+        default_value='amdc',
         description='Host for iperf3 testing.'
     )
 

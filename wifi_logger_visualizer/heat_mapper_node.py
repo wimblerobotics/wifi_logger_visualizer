@@ -39,7 +39,7 @@ class HeatMapperNode(Node):
 
         # Declare parameters and retrieve values
         self.standalone = self.declare_and_get_param('standalone', True)
-        self.db_path = self.declare_and_get_param('db_path', 'wifi_data.db')
+        self.db_path = self.declare_and_get_param('db_path', 'XXwifi_data.db')
         self.costmap_topic = self.declare_and_get_param('costmap_topic', '/global_costmap/costmap')
         self.scale_factor = self.declare_and_get_param('scale_factor', 1.0)
         self.text_size = self.declare_and_get_param('text_size', 0.08)  # Text size in meters
