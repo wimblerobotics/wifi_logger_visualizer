@@ -181,7 +181,7 @@ class HeatMapperNode(Node):
 
             conn.close()
             row_count = len(rows)
-            self.get_logger().info(f"Number of rows: {row_count}")
+            # self.get_logger().info(f"Number of rows: {row_count}")
             return rows
         except sqlite3.Error as e:
             self.get_logger().error(f"Error retrieving wifi data: {e}")

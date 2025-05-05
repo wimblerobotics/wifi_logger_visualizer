@@ -423,7 +423,7 @@ class WifiDataCollector(Node):
             output = result.stdout
 
             # Always log the full output at INFO level
-            self.get_logger().info(f"Full iperf3 output:\n{output}")
+            # self.get_logger().info(f"Full iperf3 output:\n{output}")
 
             # Updated regex patterns to capture the first TX-C and RX-C bitrates
             tx_match = re.search(r"\[\s*\d+\]\[TX-C\][^\n]*?(\d+(?:\.\d+)?)\s+(K|M|G)bits/sec", output)
@@ -431,14 +431,14 @@ class WifiDataCollector(Node):
 
             if tx_match:
                 tx_value, tx_unit = tx_match.group(1), tx_match.group(2)
-                self.get_logger().info(f"TX-C match succeeded. Matched value: {tx_value} {tx_unit}.")
+                # self.get_logger().info(f"TX-C match succeeded. Matched value: {tx_value} {tx_unit}.")
                 self.iperf3_sender_bitrate = convert_to_mbps(tx_value, tx_unit)
             else:
                 self.get_logger().warn("TX-C match failed.")
 
             if rx_match:
                 rx_value, rx_unit = rx_match.group(1), rx_match.group(2)
-                self.get_logger().info(f"RX-C match succeeded. Matched value: {rx_value} {rx_unit}.")
+                # self.get_logger().info(f"RX-C match succeeded. Matched value: {rx_value} {rx_unit}.")
                 self.iperf3_receiver_bitrate = convert_to_mbps(rx_value, rx_unit)
             else:
                 self.get_logger().warn("RX-C match failed.")
@@ -449,11 +449,11 @@ class WifiDataCollector(Node):
                 self.get_logger().warn(output)
             else:
                 self.iperf3_ip = self.iperf3_host
-                self.get_logger().info(f"iperf3 results: Sender: {self.iperf3_sender_bitrate} Mbps, Receiver: {self.iperf3_receiver_bitrate} Mbps")
+                # self.get_logger().info(f"iperf3 results: Sender: {self.iperf3_sender_bitrate} Mbps, Receiver: {self.iperf3_receiver_bitrate} Mbps")
 
             # Debugging logs to ensure values are assigned correctly
-            self.get_logger().info(f"Parsed iperf3_sender_bitrate: {self.iperf3_sender_bitrate}")
-            self.get_logger().info(f"Parsed iperf3_receiver_bitrate: {self.iperf3_receiver_bitrate}")
+            # self.get_logger().info(f"Parsed iperf3_sender_bitrate: {self.iperf3_sender_bitrate}")
+            # self.get_logger().info(f"Parsed iperf3_receiver_bitrate: {self.iperf3_receiver_bitrate}")
         except subprocess.CalledProcessError as e:
             self.get_logger().error(f"iperf3 execution failed: {e.stderr}")
         except Exception as e:
@@ -503,14 +503,14 @@ class WifiDataCollector(Node):
                     self.x, self.y, self.latitude, self.longitude, self.gps_status, self.gps_service,
                     bit_rate, link_quality, signal_level
                 )
-            self.get_logger().info(
-                f"X: {self.x}, Y: {self.y}, "
-                # f"Bit Rate: {bit_rate} Mb/s, "
-                # f"Link Quality: {link_quality:.2f}, "
-                # f"Signal Level: {signal_level} dBm",
-                f"Sender Bitrate: {sender_bitrate} Mbps, "
-                f"Receiver Bitrate: {receiver_bitrate} Mbps"
-            )
+            # self.get_logger().info(
+            #     f"X: {self.x}, Y: {self.y}, "
+            #     # f"Bit Rate: {bit_rate} Mb/s, "
+            #     # f"Link Quality: {link_quality:.2f}, "
+            #     # f"Signal Level: {signal_level} dBm",
+            #     f"Sender Bitrate: {sender_bitrate} Mbps, "
+            #     f"Receiver Bitrate: {receiver_bitrate} Mbps"
+            # )
         else:
             self.get_logger().warn("Could not retrieve all WiFi data, skipping insertion")
         
