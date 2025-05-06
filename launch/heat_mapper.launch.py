@@ -92,20 +92,6 @@ def generate_launch_description():
         output='screen'
     )
     
-    # Create a command to set the text_size parameter after the node starts
-    # This is a workaround for Jazzy parameter handling
-    set_text_size_cmd = ExecuteProcess(
-        cmd=[
-            FindExecutable(name='ros2'),
-            'param',
-            'set',
-            '/heat_mapper',
-            'text_size',
-            LaunchConfiguration('text_size')
-        ],
-        output='screen'
-    )
-
     return LaunchDescription([
         standalone_arg,
         db_path_arg,
@@ -117,5 +103,4 @@ def generate_launch_description():
         do_publish_text_markers_arg,
         aggregation_type_arg,
         heat_mapper_node,
-        set_text_size_cmd
     ])
