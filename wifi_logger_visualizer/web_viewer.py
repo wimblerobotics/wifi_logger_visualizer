@@ -55,6 +55,12 @@ const titles={signal:'Signal strength',tx:'TX link rate',rx:'RX link rate',
  age:'Observation age',bssid:'Access point'};
 const units={signal:'dBm',tx:'Mb/s',rx:'Mb/s',upload:'Mb/s',download:'Mb/s',
  idle_latency:'ms',loaded_latency:'ms',age:'days'};
+const nodeNames={'24:e5:0f:02:ac:1a':'Living Room','24:e5:0f:02:b5:89':'Dining Room',
+ '24:e5:0f:43:50:53':'Music Room','b8:7b:d4:b9:81:8f':'Computer Room'};
+function apLabel(bssid){
+ if(!bssid)return 'Unknown Node';
+ return (nodeNames[bssid.toLowerCase()]||'Unknown Node')+' ('+bssid+')';
+}
 let payload=null, drawn=[];
 function color(value, metric) {
  if(metric==='bssid'){let h=0; for(const c of (value||'')) h=(h*31+c.charCodeAt(0))%360;
@@ -80,11 +86,12 @@ function drawLegend(metric){
  const body=document.getElementById('legendBody');title.textContent=titles[metric];
  body.replaceChildren();
  if(metric==='bssid'){
-  const values=[...new Set(payload.cells.map(c=>c.bssid).filter(Boolean))].sort();
+  const values=[...new Set(payload.cells.map(c=>c.bssid).filter(Boolean))]
+   .sort((a,b)=>apLabel(a).localeCompare(apLabel(b)));
   for(const value of values){const row=document.createElement('div');
    row.className='legendEntry';const swatch=document.createElement('span');
    swatch.className='legendSwatch';swatch.style.background=color(value,metric);
-   const label=document.createElement('span');label.textContent=value;
+   const label=document.createElement('span');label.textContent=apLabel(value);
    row.append(swatch,label);body.append(row);}
   if(!values.length)body.textContent='No access points measured';
   return;
@@ -155,8 +162,12 @@ document.getElementById('overlay').onmousemove=e=>{const r=e.target.getBoundingC
  const signal=hit?
   `signal min/last/max ${hit.cell.signal_dbm_min}/`+
   `${hit.cell.signal_dbm_last}/${hit.cell.signal_dbm_max} dBm`:'';
+ const metric=document.getElementById('metric').value;
+ const onAp=metric==='bssid';
+ const shown=hit?(onAp?apLabel(hit.value):hit.value):'';
+ const node=onAp?'':`${apLabel(hit?hit.cell.bssid:null)}; `;
  document.getElementById('tip').textContent=hit?
-  `${hit.value} at ${position}; ${signal}; BSSID ${hit.cell.bssid}; `+
+  `${shown} at ${position}; ${signal}; ${node}`+
   hit.cell.last_observed_at:'';};
 load();
 </script></body></html>"""

@@ -129,7 +129,21 @@ ssh -L 8088:127.0.0.1:8088 titania
 ```
 
 Then open <http://127.0.0.1:8088>. The browser supports map/layer selection,
-unmeasured highlighting, cell inspection, and live refresh.
+unmeasured highlighting, cell inspection, live refresh, and a color key to the
+right of the map.
+
+### Access point names
+
+The viewer maps known mesh BSSIDs to friendly room names in the legend and the
+cell tooltip; any other BSSID is labelled `Unknown Node`. Edit `nodeNames` in
+`wifi_logger_visualizer/web_viewer.py` to match your own mesh:
+
+| BSSID | Name |
+| --- | --- |
+| `24:e5:0f:02:ac:1a` | Living Room |
+| `24:e5:0f:02:b5:89` | Dining Room |
+| `24:e5:0f:43:50:53` | Music Room |
+| `b8:7b:d4:b9:81:8f` | Computer Room |
 
 Create a transactionally consistent offline copy instead of copying a live WAL
 database directly:
