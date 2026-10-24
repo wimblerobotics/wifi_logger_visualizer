@@ -56,6 +56,7 @@ const titles={signal:'Signal strength',tx:'TX link rate',rx:'RX link rate',
  age:'Observation age',bssid:'Access point'};
 const units={signal:'dBm',tx:'Mb/s',rx:'Mb/s',upload:'Mb/s',download:'Mb/s',
  idle_latency:'ms',loaded_latency:'ms',age:'days'};
+const unmeasuredColor='rgba(65,105,225,.48)';
 const nodeNames=__NODE_NAMES__;
 function apLabel(bssid){
  if(!bssid)return 'Unknown Node';
@@ -109,7 +110,7 @@ function drawLegend(metric){
  if(document.getElementById('unmeasured').checked){
   const note=document.createElement('div');note.className='legendEntry';
   const swatch=document.createElement('span');swatch.className='legendSwatch';
-  swatch.style.background='rgba(90,90,90,.28)';
+  swatch.style.background=unmeasuredColor;
   const label=document.createElement('span');label.textContent='Unmeasured free space';
   note.append(swatch,label);body.append(note);}
 }
@@ -122,7 +123,7 @@ function draw(){
  const size=payload.cell_size/payload.map.resolution;
  const measured=new Set(payload.cells.map(v=>v.cell_x+','+v.cell_y));
  if(document.getElementById('unmeasured').checked){
-  x.fillStyle='rgba(90,90,90,.28)';
+  x.fillStyle=unmeasuredColor;
   for(const p of payload.free_cells){const [px,py]=pixel(p[0],p[1]);
    const key=Math.floor(p[0]/payload.cell_size)+','+Math.floor(p[1]/payload.cell_size);
    if(!measured.has(key))x.fillRect(px-size/2,py-size/2,size,size);}
