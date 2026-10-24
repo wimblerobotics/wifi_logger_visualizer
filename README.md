@@ -115,7 +115,7 @@ Unmeasured highlighting covers known-free map cells only and is off by default.
 
 ## Browser viewer and snapshots
 
-Run the dependency-free HTTP service locally:
+Run the lightweight HTTP service locally:
 
 ```bash
 ros2 run wifi_logger_visualizer web_viewer.py \
