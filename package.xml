@@ -2,8 +2,8 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>wifi_logger_visualizer</name>
-  <version>1.3.0</version>
-  <description>WiFi signal strength logger and visualizer for ROS2</description>
+  <version>2.0.0</version>
+  <description>Persistent, map-aware Wi-Fi monitoring and surveying for ROS 2</description>
   <maintainer email="mike@wimblerobotics.com">Michael Wimble</maintainer>
   <license>MIT</license>
 
@@ -11,18 +11,18 @@
   <buildtool_depend>ament_cmake_python</buildtool_depend>
 
   <depend>rclpy</depend>
-  <depend>nav_msgs</depend>
+  <depend>ament_index_python</depend>
   <depend>geometry_msgs</depend>
+  <depend>std_msgs</depend>
   <depend>tf2_ros</depend>
-  <depend>tf2_geometry_msgs</depend>
+  <depend>visualization_msgs</depend>
   <depend>python3-matplotlib</depend>
   <depend>python3-numpy</depend>
-  <depend>python3-scipy</depend>
-  <depend>python3-seaborn</depend>
   <depend>python3-sqlite3</depend>
-  <depend>rviz_2d_overlay_plugins</depend>
+  <depend>python3-yaml</depend>
 
   <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_cmake_pytest</test_depend>
   <test_depend>ament_flake8</test_depend>
   <test_depend>ament_pep257</test_depend>
   <test_depend>python3-pytest</test_depend>

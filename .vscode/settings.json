@@ -26,5 +26,6 @@
         "/home/ros/sigyn_ws/install/line_finder/lib/python3.12/site-packages",
         "/home/ros/sigyn_ws/install/base/lib/python3.12/site-packages",
         "/opt/ros/jazzy/lib/python3.12/site-packages"
-    ]
+    ],
+    "ROS2.distro": "lyrical"
 }
