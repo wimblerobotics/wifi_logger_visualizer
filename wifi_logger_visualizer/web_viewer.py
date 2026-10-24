@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 
 from wifi_logger_visualizer.database_manager import DatabaseManager
 from wifi_logger_visualizer.map_data import decode_pgm, free_cell_centers
+import yaml
 
 
 HTML = """<!doctype html>
@@ -55,8 +56,7 @@ const titles={signal:'Signal strength',tx:'TX link rate',rx:'RX link rate',
  age:'Observation age',bssid:'Access point'};
 const units={signal:'dBm',tx:'Mb/s',rx:'Mb/s',upload:'Mb/s',download:'Mb/s',
  idle_latency:'ms',loaded_latency:'ms',age:'days'};
-const nodeNames={'24:e5:0f:02:ac:1a':'Living Room','24:e5:0f:02:b5:89':'Dining Room',
- '24:e5:0f:43:50:53':'Music Room','b8:7b:d4:b9:81:8f':'Computer Room'};
+const nodeNames=__NODE_NAMES__;
 function apLabel(bssid){
  if(!bssid)return 'Unknown Node';
  return (nodeNames[bssid.toLowerCase()]||'Unknown Node')+' ('+bssid+')';
@@ -173,9 +173,40 @@ load();
 </script></body></html>"""
 
 
+def load_node_names(path: str) -> dict[str, str]:
+    config = yaml.safe_load(Path(path).expanduser().read_text(encoding="utf-8"))
+    if not isinstance(config, dict) or not isinstance(
+        config.get("access_points"), dict
+    ):
+        raise ValueError(
+            f"Access point configuration must contain an access_points mapping: {path}"
+        )
+    return {
+        str(bssid).lower(): str(name)
+        for bssid, name in config["access_points"].items()
+    }
+
+
+def default_node_names_path() -> Path:
+    from ament_index_python.packages import get_package_share_directory
+
+    return (
+        Path(get_package_share_directory("wifi_logger_visualizer"))
+        / "config"
+        / "access_points.yaml"
+    )
+
+
+def rendered_html(node_names: dict[str, str]) -> str:
+    return HTML.replace(
+        "__NODE_NAMES__", json.dumps(node_names, separators=(",", ":"))
+    )
+
+
 class ViewerHandler(BaseHTTPRequestHandler):
     db_path = ""
     cell_size = 0.25
+    node_names: dict[str, str] = {}
 
     def _map_id(self, database: DatabaseManager) -> int:
         query = parse_qs(urlparse(self.path).query)
@@ -196,7 +227,10 @@ class ViewerHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = urlparse(self.path).path
         if path == "/":
-            self._send(HTML.encode(), "text/html; charset=utf-8")
+            self._send(
+                rendered_html(self.node_names).encode(),
+                "text/html; charset=utf-8",
+            )
             return
         database = DatabaseManager(self.db_path)
         try:
@@ -256,6 +290,11 @@ def main() -> None:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8088)
     parser.add_argument("--cell-size", type=float, default=0.25)
+    parser.add_argument(
+        "--node-names",
+        help="YAML file containing an access_points BSSID-to-name mapping",
+        default=None,
+    )
     parser.add_argument("--snapshot", help="Create a consistent SQLite copy and exit")
     args = parser.parse_args()
     db_path = str(Path(args.db).expanduser().resolve())
@@ -265,6 +304,8 @@ def main() -> None:
         return
     ViewerHandler.db_path = db_path
     ViewerHandler.cell_size = args.cell_size
+    node_names_path = args.node_names or str(default_node_names_path())
+    ViewerHandler.node_names = load_node_names(node_names_path)
     server = HTTPServer((args.host, args.port), ViewerHandler)
     print(f"Wi-Fi viewer: http://{args.host}:{args.port}")
     try:

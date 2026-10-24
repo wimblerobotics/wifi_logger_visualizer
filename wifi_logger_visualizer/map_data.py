@@ -70,13 +70,14 @@ def free_cell_centers(
     resolution = float(map_data["resolution"])
     origin_x = float(map_data["origin_x"])
     origin_y = float(map_data["origin_y"])
-    cells_wide = int(map_data["width"] * resolution / cell_size) + 1
-    cells_high = int(map_data["height"] * resolution / cell_size) + 1
+    min_cell_x = int(origin_x // cell_size)
+    min_cell_y = int(origin_y // cell_size)
+    max_cell_x = int((origin_x + map_data["width"] * resolution) // cell_size)
+    max_cell_y = int((origin_y + map_data["height"] * resolution) // cell_size)
     result = []
-    for grid_y in range(cells_high):
-        for grid_x in range(cells_wide):
-            x = origin_x + (grid_x + 0.5) * cell_size
-            y = origin_y + (grid_y + 0.5) * cell_size
+    for cell_y in range(min_cell_y, max_cell_y + 1):
+        for cell_x in range(min_cell_x, max_cell_x + 1):
+            x, y = cell_center(cell_x, cell_y, cell_size)
             pixel_x = int((x - origin_x) / resolution)
             pixel_y = int(map_data["height"]) - 1 - int(
                 (y - origin_y) / resolution

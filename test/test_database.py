@@ -1,7 +1,12 @@
 from pathlib import Path
 
 from wifi_logger_visualizer.database_manager import DatabaseManager
-from wifi_logger_visualizer.map_data import cell_center, cell_for_position, load_map
+from wifi_logger_visualizer.map_data import (
+    cell_center,
+    cell_for_position,
+    free_cell_centers,
+    load_map,
+)
 
 
 def write_map(directory: Path) -> Path:
@@ -62,3 +67,13 @@ def test_latest_visit_replaces_previous_window(tmp_path):
     assert replaced["signal_dbm_max"] == -80.0
     assert replaced["signal_dbm_last"] == -80.0
     assert replaced["sample_count"] == 1
+
+
+def test_free_cell_centers_use_database_cell_coordinates(tmp_path):
+    map_data = load_map(str(write_map(tmp_path)))
+    centers = free_cell_centers(map_data, 0.25)
+
+    assert centers
+    for x, y in centers:
+        assert (x / 0.25 - 0.5).is_integer()
+        assert (y / 0.25 - 0.5).is_integer()

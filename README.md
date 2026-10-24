@@ -135,8 +135,8 @@ right of the map.
 ### Access point names
 
 The viewer maps known mesh BSSIDs to friendly room names in the legend and the
-cell tooltip; any other BSSID is labelled `Unknown Node`. Edit `nodeNames` in
-`wifi_logger_visualizer/web_viewer.py` to match your own mesh:
+cell tooltip; any other BSSID is labelled `Unknown Node`. The default mappings
+are in `config/access_points.yaml`:
 
 | BSSID | Name |
 | --- | --- |
@@ -144,6 +144,9 @@ cell tooltip; any other BSSID is labelled `Unknown Node`. Edit `nodeNames` in
 | `24:e5:0f:02:b5:89` | Dining Room |
 | `24:e5:0f:43:50:53` | Music Room |
 | `b8:7b:d4:b9:81:8f` | Computer Room |
+
+Use a different mapping with `--node-names /path/to/access_points.yaml`. The
+file must contain an `access_points` mapping whose keys are BSSIDs.
 
 Create a transactionally consistent offline copy instead of copying a live WAL
 database directly:
