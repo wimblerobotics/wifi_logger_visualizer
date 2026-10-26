@@ -204,7 +204,7 @@ class WifiSurveyNode(Node):
         self.recovery_active = False
         self.positions: deque[Tuple[float, float, float]] = deque()
         self.last_survey: Dict[Tuple[int, int], float] = {}
-        self.executor = ThreadPoolExecutor(max_workers=1)
+        self._survey_pool = ThreadPoolExecutor(max_workers=1)
         self.future: Optional[Future] = None
         self.pending_cell: Optional[Tuple[int, int]] = None
         self.create_timer(0.5, self._tick)
@@ -214,7 +214,7 @@ class WifiSurveyNode(Node):
         )
 
     def destroy_node(self) -> None:
-        self.executor.shutdown(wait=True, cancel_futures=False)
+        self._survey_pool.shutdown(wait=True, cancel_futures=False)
         super().destroy_node()
 
     def _recovery_callback(self, message: Bool) -> None:
@@ -268,7 +268,7 @@ class WifiSurveyNode(Node):
         except (OSError, RuntimeError, subprocess.SubprocessError):
             bssid = None
         self.pending_cell = cell
-        self.future = self.executor.submit(
+        self.future = self._survey_pool.submit(
             perform_survey,
             self.target_host,
             self.iperf_duration,
