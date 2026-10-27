@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 import argparse
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import html
 import io
 import json
 from pathlib import Path
 import sqlite3
+import socket
+from threading import Lock
+from time import monotonic
 from urllib.parse import parse_qs, urlparse
 
 import matplotlib.pyplot as plt
@@ -15,24 +19,47 @@ import yaml
 
 
 HTML = """<!doctype html>
-<html><head><meta charset="utf-8"><title>Titania Wi-Fi Map</title>
+<html><head><meta charset="utf-8"><title>__ROBOT_NAME__ Wi-Fi Map</title>
 <style>
-body { font-family: sans-serif; margin: 1rem; background: #202124; color: #eee; }
-#toolbar { display:flex; gap:1rem; align-items:center; flex-wrap:wrap; margin-bottom:1rem; }
-#content { display:flex; gap:1.25rem; align-items:flex-start; }
-#wrap { position:relative; display:inline-block; }
-#map { display:block; max-width:calc(100vw - 2rem); max-height:75vh; }
+* { box-sizing:border-box; }
+html,body { width:100%; height:100%; }
+body { font-family:system-ui,sans-serif; margin:0; padding:1rem;
+ background:#202124; color:#eee; display:flex; flex-direction:column; gap:.75rem; }
+h2 { margin:0; font-size:1.2rem; font-weight:600; }
+#toolbar { display:flex; gap:.75rem; align-items:center; flex-wrap:wrap; flex-shrink:0; }
+#toolbar label { display:flex; align-items:center; gap:.4rem; min-width:0; }
+#mapSelect { max-width:min(32rem,65vw); }
+#content { position:relative; flex:1; min-height:0; min-width:0;
+ background:#151618; border:1px solid #444; border-radius:.6rem; overflow:hidden; }
+#viewport { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; }
+#wrap { position:relative; flex:none; }
+#map { display:block; width:100%; height:100%; image-rendering:pixelated; }
 #overlay { position:absolute; left:0; top:0; width:100%; height:100%; }
-#legend { min-width:10rem; padding:.75rem; background:#303134; border-radius:.4rem; }
+#legend { position:absolute; right:.75rem; top:.75rem; max-width:min(20rem,45%);
+ max-height:calc(100% - 1.5rem); overflow:auto; padding:.75rem;
+ background:rgba(32,33,36,.9); border:1px solid #555; border-radius:.5rem;
+ box-shadow:0 2px 10px #0005; font-size:.85rem; overflow-wrap:anywhere; }
 #legendTitle { font-weight:bold; margin-bottom:.75rem; }
 .legendScale { display:flex; gap:.5rem; height:15rem; }
 .legendBar { width:1.5rem; border:1px solid #aaa; }
 .legendLabels { display:flex; flex-direction:column; justify-content:space-between; }
 .legendEntry { display:flex; gap:.5rem; align-items:center; margin:.4rem 0; }
 .legendSwatch { width:1.25rem; height:1.25rem; border:1px solid #aaa; }
-#tip { min-height:2rem; } select,button { padding:.3rem; }
+#tip { min-height:9.5em; max-height:32.0vh; overflow:auto; padding:.65rem .8rem;
+ font-size:.85rem; line-height:1.5; flex-shrink:0; white-space:pre-line;
+ background:#292a2d; border:1px solid #444; border-radius:.5rem; }
+#loadStatus:empty { display:none; }
+select,button { padding:.4rem .55rem; border:1px solid #666; border-radius:.3rem;
+ background:#303134; color:#eee; }
+button { cursor:pointer; }
+button:hover { background:#45464a; }
+@media (max-width:600px) {
+ body { padding:.5rem; gap:.5rem; }
+ #legend { padding:.5rem; font-size:.75rem; }
+ .legendScale { height:8rem; }
+}
 </style></head>
-<body><h2>Titania Wi-Fi coverage</h2><div id="toolbar">
+<body><h2>__ROBOT_NAME__ Wi-Fi coverage</h2><div id="toolbar">
 <label>Map <select id="mapSelect"></select></label>
 <label>Layer <select id="metric">
 <option value="signal">Signal (dBm)</option><option value="tx">TX link rate</option>
@@ -44,9 +71,9 @@ body { font-family: sans-serif; margin: 1rem; background: #202124; color: #eee; 
 </select></label>
 <label><input id="unmeasured" type="checkbox"> Highlight unmeasured free cells</label>
 <button id="refresh">Refresh</button><button id="export">Export PNG</button></div>
-<div id="content"><div id="wrap"><img id="map"><canvas id="overlay"></canvas></div>
+<div id="content"><div id="viewport"><div id="wrap"><img id="map" alt="Wi-Fi coverage map"><canvas id="overlay"></canvas></div></div>
 <div id="legend"><div id="legendTitle"></div><div id="legendBody"></div></div></div>
-<div id="tip"></div>
+<div id="loadStatus" role="status"></div><div id="tip">Hover over a measured cell to see its Wi-Fi details.</div>
 <script>
 const ranges={signal:[-90,-35],tx:[0,1200],rx:[0,1200],upload:[0,500],
  download:[0,500],idle_latency:[0,100],loaded_latency:[0,200],age:[0,30]};
@@ -114,7 +141,17 @@ function drawLegend(metric){
   const label=document.createElement('span');label.textContent='Unmeasured free space';
   note.append(swatch,label);body.append(note);}
 }
+function fitMap(){
+ const img=document.getElementById('map'),viewport=document.getElementById('viewport');
+ if(!img.naturalWidth||!viewport.clientWidth||!viewport.clientHeight)return;
+ const scale=Math.min(viewport.clientWidth/img.naturalWidth,viewport.clientHeight/img.naturalHeight);
+ const wrap=document.getElementById('wrap');
+ wrap.style.width=img.naturalWidth*scale+'px';
+ wrap.style.height=img.naturalHeight*scale+'px';
+}
+new ResizeObserver(fitMap).observe(document.getElementById('viewport'));
 function draw(){
+ if(!payload || !document.getElementById("map").naturalWidth)return;
  const img=document.getElementById('map'), c=document.getElementById('overlay');
  c.width=img.naturalWidth;c.height=img.naturalHeight;const x=c.getContext('2d');
  x.clearRect(0,0,c.width,c.height);drawn=[];
@@ -133,44 +170,75 @@ function draw(){
   const [px,py]=pixel(cell.center_x,cell.center_y);x.fillStyle=color(v,metric);
   x.fillRect(px-size/2,py-size/2,size,size);drawn.push({px,py,size,cell,value:v});}
 }
-async function load(){
- const id=document.getElementById('mapSelect').value;
- payload=await (await fetch('/api/data'+(id?'?map_id='+id:''))).json();
- const sel=document.getElementById('mapSelect');if(!sel.options.length){
+let loading=false;
+async function loadData(){
+ if(loading)return;
+ loading=true;
+ const status=document.getElementById('loadStatus');
+ status.textContent='Loading map data...';
+ try{
+  const id=document.getElementById('mapSelect').value;
+  const url='/api/data'+(id?'?map_id='+encodeURIComponent(id):'');
+  let data;
+  for(let attempt=0;attempt<2;attempt++){
+   try{
+    const response=await fetch(url,{cache:'no-store',signal:AbortSignal.timeout(15000)});
+    if(!response.ok)throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+    data=await response.json();
+    break;
+   }catch(error){
+    if(!['AbortError','TimeoutError'].includes(error.name)||attempt===1)throw error;
+    status.textContent='Data request was interrupted or timed out; retrying...';
+    await new Promise(resolve=>setTimeout(resolve,300));
+   }
+  }
+  if(!data.map||!Array.isArray(data.maps))throw new Error('Invalid map data response');
+  payload=data;
+  const sel=document.getElementById('mapSelect');
+  sel.replaceChildren();
   for(const m of payload.maps){const o=document.createElement('option');o.value=m.id;
    o.text=`${m.id}: ${m.source_yaml_path} (${m.content_hash.slice(0,8)})`;sel.add(o);}
   sel.value=payload.map.id;
- }
- const img=document.getElementById('map');img.onload=draw;
- img.src='/map.png?map_id='+payload.map.id+'&t='+Date.now();
+  const img=document.getElementById('map');
+  img.onload=()=>{fitMap();draw();status.textContent='';};
+  img.onerror=()=>{status.textContent='Map image failed to load. Click Refresh to retry.';};
+  img.src='/map.png?map_id='+payload.map.id+'&t='+Date.now();
+ }catch(error){
+  console.error('Wi-Fi map load failed:',error);
+  status.textContent=`Could not load map data: ${error.message}. Click Refresh to retry.`;
+ }finally{loading=false;}
 }
 document.getElementById('metric').onchange=draw;
 document.getElementById('unmeasured').onchange=draw;
-document.getElementById('mapSelect').onchange=load;
-document.getElementById('refresh').onclick=load;
+document.getElementById('mapSelect').onchange=loadData;
+document.getElementById('refresh').onclick=loadData;
 document.getElementById('export').onclick=()=>{
  const image=document.getElementById('map'),overlay=document.getElementById('overlay');
  const output=document.createElement('canvas');output.width=overlay.width;
  output.height=overlay.height;const context=output.getContext('2d');
  context.drawImage(image,0,0);context.drawImage(overlay,0,0);
- const link=document.createElement('a');link.download='titania-wifi-map.png';
+ const link=document.createElement('a');link.download=__MAP_DOWNLOAD_NAME__;
  link.href=output.toDataURL('image/png');link.click();};
 document.getElementById('overlay').onmousemove=e=>{const r=e.target.getBoundingClientRect();
  const px=(e.clientX-r.left)*e.target.width/r.width,py=(e.clientY-r.top)*e.target.height/r.height;
  const hit=drawn.find(v=>Math.abs(v.px-px)<v.size/2&&Math.abs(v.py-py)<v.size/2);
- const position=hit?
-  `(${hit.cell.center_x.toFixed(2)}, ${hit.cell.center_y.toFixed(2)})`:'';
- const signal=hit?
-  `signal min/last/max ${hit.cell.signal_dbm_min}/`+
-  `${hit.cell.signal_dbm_last}/${hit.cell.signal_dbm_max} dBm`:'';
- const metric=document.getElementById('metric').value;
- const onAp=metric==='bssid';
- const shown=hit?(onAp?apLabel(hit.value):hit.value):'';
- const node=onAp?'':`${apLabel(hit?hit.cell.bssid:null)}; `;
- document.getElementById('tip').textContent=hit?
-  `${shown} at ${position}; ${signal}; ${node}`+
-  hit.cell.last_observed_at:'';};
-load();
+ const tip=document.getElementById('tip');
+ if(!hit){tip.textContent='Hover over a measured cell to see its Wi-Fi details.';return;}
+ const cell=hit.cell,metric=document.getElementById('metric').value;
+ const number=(value,unit)=>typeof value==='number'&&Number.isFinite(value)?
+  `${value.toFixed(1)} ${unit}`:'Not available';
+ const selected=metric==='bssid'?apLabel(hit.value):number(hit.value,units[metric]);
+ const observed=new Date(cell.last_observed_at);
+ const observedText=Number.isNaN(observed.getTime())?'Not available':
+  observed.toLocaleString(undefined,{timeZoneName:'short'});
+ tip.textContent=[
+  `Position: X ${cell.center_x.toFixed(2)} m, Y ${cell.center_y.toFixed(2)} m · Cell (${cell.cell_x}, ${cell.cell_y})`,
+  `Access point: ${apLabel(cell.bssid)}`,
+  `${titles[metric]}: ${selected}`,
+  `Signal: latest ${number(cell.signal_dbm_last,'dBm')} · weakest ${number(cell.signal_dbm_min,'dBm')} · strongest ${number(cell.signal_dbm_max,'dBm')}`,
+  `Last observed: ${observedText} [${cell.last_observed_at ?? 'Not available'}]`
+ ].join('\\n');};
+loadData();
 </script></body></html>"""
 
 
@@ -198,10 +266,29 @@ def default_node_names_path() -> Path:
     )
 
 
+def robot_name() -> str:
+    """Use the local machine name without its network domain suffix."""
+    return socket.gethostname().split(".", 1)[0].capitalize()
+
+
 def rendered_html(node_names: dict[str, str]) -> str:
-    return HTML.replace(
-        "__NODE_NAMES__", json.dumps(node_names, separators=(",", ":"))
-    )
+    name = robot_name()
+    return (HTML.replace("__ROBOT_NAME__", html.escape(name))
+            .replace("__MAP_DOWNLOAD_NAME__", json.dumps(name.lower() + "-wifi-map.png"))
+            .replace("__NODE_NAMES__", json.dumps(node_names, separators=(",", ":"))))
+
+
+class ViewerHTTPServer(ThreadingHTTPServer):
+    """Keep idle browser connections from blocking other clients."""
+
+    def get_request(self):
+        connection, address = super().get_request()
+        connection.settimeout(10.0)
+        return connection, address
+
+
+# Matplotlib is shared across request threads; serialize only image rendering.
+_IMAGE_RENDER_LOCK = Lock()
 
 
 class ViewerHandler(BaseHTTPRequestHandler):
@@ -219,13 +306,33 @@ class ViewerHandler(BaseHTTPRequestHandler):
         return int(latest["id"])
 
     def _send(self, body: bytes, content_type: str) -> None:
+        started = monotonic()
         self.send_response(200)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+        self.wfile.flush()
+        self.log_message("response sent: %s, %d bytes in %.3fs", self.path, len(body), monotonic() - started)
 
     def do_GET(self) -> None:
+        started = monotonic()
+        try:
+            self._handle_get()
+        except (BrokenPipeError, ConnectionResetError, TimeoutError):
+            # A browser can cancel a request during navigation or refresh.
+            # The response cannot be delivered; keep serving other requests.
+            self.log_message("client disconnected or socket timed out: %s", self.path)
+        except sqlite3.Error as error:
+            self.log_message("database error for %s: %s", self.path, error)
+            try:
+                self.send_error(503, "Wi-Fi database temporarily unavailable; retry the request")
+            except (BrokenPipeError, ConnectionResetError, TimeoutError):
+                pass
+        finally:
+            self.log_message("request finished: %s in %.3fs", self.path, monotonic() - started)
+
+    def _handle_get(self) -> None:
         path = urlparse(self.path).path
         if path == "/":
             self._send(
@@ -233,7 +340,11 @@ class ViewerHandler(BaseHTTPRequestHandler):
                 "text/html; charset=utf-8",
             )
             return
-        database = DatabaseManager(self.db_path)
+        if path == "/favicon.ico":
+            self.send_response(204)
+            self.end_headers()
+            return
+        database = DatabaseManager(self.db_path, read_only=True)
         try:
             map_id = self._map_id(database)
             map_data = database.get_map(map_id)
@@ -258,14 +369,15 @@ class ViewerHandler(BaseHTTPRequestHandler):
                 self._send(body, "application/json")
             elif path == "/map.png":
                 output = io.BytesIO()
-                plt.imsave(
-                    output,
-                    decode_pgm(map_data["image_data"]),
-                    cmap="gray",
-                    vmin=0.0,
-                    vmax=1.0,
-                    format="png",
-                )
+                with _IMAGE_RENDER_LOCK:
+                    plt.imsave(
+                        output,
+                        decode_pgm(map_data["image_data"]),
+                        cmap="gray",
+                        vmin=0.0,
+                        vmax=1.0,
+                        format="png",
+                    )
                 self._send(output.getvalue(), "image/png")
             else:
                 self.send_error(404)
@@ -286,7 +398,7 @@ def snapshot_database(source: str, destination: str) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Browse Titania Wi-Fi maps")
+    parser = argparse.ArgumentParser(description=f"Browse {robot_name()} Wi-Fi maps")
     parser.add_argument("--db", default="~/.ros/titania_wifi.db")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8088)
@@ -299,15 +411,27 @@ def main() -> None:
     parser.add_argument("--snapshot", help="Create a consistent SQLite copy and exit")
     args = parser.parse_args()
     db_path = str(Path(args.db).expanduser().resolve())
+    node_names_path = args.node_names
+    if not node_names_path and not args.snapshot:
+        node_names_path = str(default_node_names_path())
+    if node_names_path:
+        node_names_path = str(Path(node_names_path).expanduser().resolve())
+    snapshot_path = str(Path(args.snapshot).expanduser().resolve()) if args.snapshot else None
+    parameters = {
+        **vars(args),
+        "db": db_path,
+        "node_names": node_names_path,
+        "snapshot": snapshot_path,
+    }
+    print("Wi-Fi viewer parameters:\n" + json.dumps(parameters, indent=2), flush=True)
     if args.snapshot:
-        snapshot_database(db_path, args.snapshot)
+        snapshot_database(db_path, snapshot_path)
         print(f"Snapshot written to {Path(args.snapshot).expanduser().resolve()}")
         return
     ViewerHandler.db_path = db_path
     ViewerHandler.cell_size = args.cell_size
-    node_names_path = args.node_names or str(default_node_names_path())
     ViewerHandler.node_names = load_node_names(node_names_path)
-    server = HTTPServer((args.host, args.port), ViewerHandler)
+    server = ViewerHTTPServer((args.host, args.port), ViewerHandler)
     print(f"Wi-Fi viewer: http://{args.host}:{args.port}")
     try:
         server.serve_forever()

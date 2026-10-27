@@ -30,3 +30,9 @@
     stationary_tolerance: 0.04
     revisit_interval: 300.0
     iperf_duration: 3
+
+/**/wifi_web_viewer:
+  ros__parameters:
+    host: "0.0.0.0"
+    port: 8088
+    # node_names: "/path/to/access_point_names.yaml"
