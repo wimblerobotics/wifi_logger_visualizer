@@ -20,8 +20,14 @@ def utc_now() -> str:
 class DatabaseManager:
     """Own the current, map-specific Wi-Fi estimate database."""
 
-    def __init__(self, db_path: str):
+    def __init__(self, db_path: str, *, read_only: bool = False):
         self.db_path = str(Path(db_path).expanduser().resolve())
+        if read_only:
+            self.conn = sqlite3.connect(
+                Path(self.db_path).as_uri() + "?mode=ro", uri=True, timeout=2.0
+            )
+            self.conn.row_factory = sqlite3.Row
+            return
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(self.db_path, timeout=10.0)
         self.conn.row_factory = sqlite3.Row
