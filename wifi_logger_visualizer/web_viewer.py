@@ -32,9 +32,11 @@ h2 { margin:0; font-size:1.2rem; font-weight:600; }
 #mapSelect { max-width:calc(100vw - 6rem); }
 #content { position:relative; flex:1; min-height:0; min-width:0;
  background:#151618; border:1px solid #444; border-radius:.6rem; overflow:hidden; }
-#viewport { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; }
+#viewport { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+ overflow:hidden; cursor:grab; touch-action:none; user-select:none; }
+#viewport.dragging { cursor:grabbing; }
 #wrap { position:relative; flex:none; }
-#map { display:block; width:100%; height:100%; image-rendering:pixelated; }
+#map { pointer-events:none; display:block; width:100%; height:100%; image-rendering:pixelated; }
 #overlay { position:absolute; left:0; top:0; width:100%; height:100%; }
 #legend { position:absolute; right:.75rem; top:.75rem; max-width:min(20rem,45%);
  max-height:calc(100% - 1.5rem); overflow:auto; padding:.75rem;
@@ -77,8 +79,8 @@ button:hover { background:#45464a; }
 <option value="age">Observation age</option><option value="bssid">Access point</option>
 </select></label>
 <label><input id="unmeasured" type="checkbox"> Highlight unmeasured free cells</label>
-<button id="refresh">Refresh</button><button id="export">Export PNG</button></div>
-<div id="content"><div id="viewport"><div id="wrap"><img id="map" alt="Wi-Fi coverage map"><canvas id="overlay"></canvas></div></div>
+<button id="fitMap" title="Reset zoom and pan">Fit map</button><button id="refresh">Refresh</button><button id="export">Export PNG</button></div>
+<div id="content"><div id="viewport" title="Scroll to zoom; drag to pan; double-click to fit"><div id="wrap"><img id="map" alt="Wi-Fi coverage map"><canvas id="overlay"></canvas></div></div>
 <div id="compass"><div id="compassTitle">Saved orientation unavailable</div>
 <canvas id="compassRose" width="120" height="120" role="img" aria-label="Saved true North direction"></canvas>
 <div id="compassDetails" role="status"></div></div>
@@ -210,15 +212,54 @@ function drawLegend(metric){
   const label=document.createElement('span');label.textContent='Unmeasured free space';
   note.append(swatch,label);body.append(note);}
 }
+let mapZoom=1, mapPanX=0, mapPanY=0, mapDrag=null, viewedMapId=null;
+function resetMapView(){
+ mapZoom=1;mapPanX=0;mapPanY=0;fitMap();
+}
 function fitMap(){
  const img=document.getElementById('map'),viewport=document.getElementById('viewport');
  if(!img.naturalWidth||!viewport.clientWidth||!viewport.clientHeight)return;
  const scale=Math.min(viewport.clientWidth/img.naturalWidth,viewport.clientHeight/img.naturalHeight);
  const wrap=document.getElementById('wrap');
- wrap.style.width=img.naturalWidth*scale+'px';
- wrap.style.height=img.naturalHeight*scale+'px';
+ wrap.style.width=img.naturalWidth*scale*mapZoom+'px';
+ wrap.style.height=img.naturalHeight*scale*mapZoom+'px';
+ wrap.style.transform=`translate(${mapPanX}px,${mapPanY}px)`;
 }
-new ResizeObserver(fitMap).observe(document.getElementById('viewport'));
+const viewport=document.getElementById('viewport');
+new ResizeObserver(fitMap).observe(viewport);
+viewport.addEventListener('wheel',e=>{
+ if(!document.getElementById('map').naturalWidth)return;
+ e.preventDefault();
+ const rect=viewport.getBoundingClientRect();
+ const x=e.clientX-rect.left-rect.width/2,y=e.clientY-rect.top-rect.height/2;
+ const delta=e.deltaY*(e.deltaMode===1?16:e.deltaMode===2?viewport.clientHeight:1);
+ const zoom=Math.max(1,Math.min(20,mapZoom*Math.exp(-delta*.0015)));
+ const ratio=zoom/mapZoom;
+ mapPanX=x-(x-mapPanX)*ratio;mapPanY=y-(y-mapPanY)*ratio;mapZoom=zoom;
+ if(mapZoom===1){mapPanX=0;mapPanY=0;}
+ fitMap();
+},{passive:false});
+viewport.addEventListener('pointerdown',e=>{
+ if(e.button!==0)return;
+ mapDrag={id:e.pointerId,x:e.clientX,y:e.clientY,panX:mapPanX,panY:mapPanY};
+ viewport.setPointerCapture(e.pointerId);viewport.classList.add('dragging');
+ e.preventDefault();
+});
+viewport.addEventListener('pointermove',e=>{
+ if(!mapDrag||mapDrag.id!==e.pointerId)return;
+ mapPanX=mapDrag.panX+e.clientX-mapDrag.x;mapPanY=mapDrag.panY+e.clientY-mapDrag.y;
+ fitMap();
+});
+function endMapDrag(e){
+ if(!mapDrag||mapDrag.id!==e.pointerId)return;
+ mapDrag=null;viewport.classList.remove('dragging');
+ if(viewport.hasPointerCapture(e.pointerId))viewport.releasePointerCapture(e.pointerId);
+}
+viewport.addEventListener('pointerup',endMapDrag);
+viewport.addEventListener('pointercancel',endMapDrag);
+viewport.addEventListener('lostpointercapture',endMapDrag);
+viewport.addEventListener('dblclick',resetMapView);
+document.getElementById('fitMap').onclick=resetMapView;
 function draw(){
  if(!payload || !document.getElementById("map").naturalWidth)return;
  const img=document.getElementById('map'), c=document.getElementById('overlay');
@@ -275,7 +316,11 @@ async function loadData(){
    o.text=`${m.id}: ${m.source_yaml_path} (${m.content_hash.slice(0,8)})${timeLabel}`;sel.add(o);}
   sel.value=payload.map.id;
   const img=document.getElementById('map');
-  img.onload=()=>{fitMap();draw();status.textContent='';};
+  img.onload=()=>{
+   if(viewedMapId!==payload.map.id){viewedMapId=payload.map.id;resetMapView();}
+   else fitMap();
+   draw();status.textContent='';
+  };
   img.onerror=()=>{status.textContent='Map image failed to load. Click Refresh to retry.';};
   img.src='/map.png?map_id='+payload.map.id+'&t='+Date.now();
  }catch(error){
@@ -298,7 +343,9 @@ document.getElementById('export').onclick=()=>{
  }
  const link=document.createElement('a');link.download=__MAP_DOWNLOAD_NAME__;
  link.href=output.toDataURL('image/png');link.click();};
-document.getElementById('overlay').onmousemove=e=>{const r=e.target.getBoundingClientRect();
+document.getElementById('overlay').onmousemove=e=>{
+ if(mapDrag)return;
+ const r=e.target.getBoundingClientRect();
  const px=(e.clientX-r.left)*e.target.width/r.width,py=(e.clientY-r.top)*e.target.height/r.height;
  const hit=drawn.find(v=>Math.abs(v.px-px)<v.size/2&&Math.abs(v.py-py)<v.size/2);
  const tip=document.getElementById('tip');

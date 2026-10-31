@@ -36,6 +36,7 @@ def wait_for_saved_map(map_yaml_path, actions, retry_interval=5.0):
         nonlocal released
         if released:
             return []
+        check_log = LogInfo(msg=f'Wi-Fi V2 checking saved map: {path}')
         try:
             captured = load_map(path)
             decode_pgm(captured['image_data'])
@@ -44,11 +45,12 @@ def wait_for_saved_map(map_yaml_path, actions, retry_interval=5.0):
                 raise ValueError('Map dimensions and resolution must be positive and finite')
         except (OSError, UnicodeError, ValueError, TypeError, KeyError, yaml.YAMLError) as error:
             return [
+                check_log,
                 LogInfo(msg=f'Wi-Fi V2 waiting for saved map {path}: {error}. '
                             f'Checking again in {retry_interval:g} seconds.'),
                 TimerAction(period=retry_interval, actions=[OpaqueFunction(function=check)]),
             ]
         released = True
-        return [LogInfo(msg=f'Wi-Fi V2 saved map is ready: {path}; starting enabled services.'), *actions]
+        return [check_log, LogInfo(msg=f'Wi-Fi V2 saved map is ready: {path}; starting enabled services.'), *actions]
 
     return OpaqueFunction(function=check)
