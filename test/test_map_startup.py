@@ -80,10 +80,12 @@ def test_package_launch_uses_the_wait_gate(tmp_path):
     callback = next(action for action in description.entities if isinstance(action, OpaqueFunction))
     context = LaunchContext()
     context.launch_configurations.update(monitoring='true', survey='false', visualization='true',
-                                         map_yaml_path=str(tmp_path / 'later.yaml'), map_check_interval='5')
+                                         map_yaml_path=str(tmp_path / 'later.yaml'), map_check_interval='5',
+                                         config_filepath=str(Path(__file__).parents[1] / 'config/wifi_logger_config.yaml'),
+                                         db_path=str(tmp_path / 'wifi.db'))
     actions = callback.execute(context)
-    assert len(actions) == 1 and isinstance(actions[0], OpaqueFunction)
-    assert any(isinstance(action, TimerAction) for action in actions[0].execute(context))
+    gate = next(action for action in actions if isinstance(action, OpaqueFunction))
+    assert any(isinstance(action, TimerAction) for action in gate.execute(context))
 
 
 def test_launch_keeps_running_and_preserves_namespace_while_map_is_saved(tmp_path):

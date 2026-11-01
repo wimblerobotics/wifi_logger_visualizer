@@ -79,7 +79,7 @@ button:hover { background:#45464a; }
 <option value="age">Observation age</option><option value="bssid">Access point</option>
 </select></label>
 <label><input id="unmeasured" type="checkbox"> Highlight unmeasured free cells</label>
-<button id="fitMap" title="Reset zoom and pan">Fit map</button><button id="refresh">Refresh</button><button id="export">Export PNG</button></div>
+<button id="keepRun" disabled>Keep run</button><button id="fitMap" title="Reset zoom and pan">Fit map</button><button id="refresh">Refresh</button><button id="export">Export PNG</button></div>
 <div id="content"><div id="viewport" title="Scroll to zoom; drag to pan; double-click to fit"><div id="wrap"><img id="map" alt="Wi-Fi coverage map"><canvas id="overlay"></canvas></div></div>
 <div id="compass"><div id="compassTitle">Saved orientation unavailable</div>
 <canvas id="compassRose" width="120" height="120" role="img" aria-label="Saved true North direction"></canvas>
@@ -313,8 +313,12 @@ async function loadData(){
    const timestamp=hasSaved ? saved : (m.captured_at ? new Date(m.captured_at) : null);
    const timeLabel=timestamp&&!Number.isNaN(timestamp.getTime())
     ? ` — ${hasSaved ? 'saved' : 'captured'} ${timestamp.toLocaleString(undefined,{timeZoneName:'short'})}` : '';
-   o.text=`${m.id}: ${m.source_yaml_path} (${m.content_hash.slice(0,8)})${timeLabel}`;sel.add(o);}
+   o.text=`${m.id}: ${m.source_yaml_path} (${m.content_hash.slice(0,8)})${timeLabel}${m.temporary ? ' [temporary]' : ''}`;sel.add(o);}
   sel.value=payload.map.id;
+  const run=payload.run;
+  const keep=document.getElementById('keepRun');
+  keep.disabled=!run||!run.temporary;
+  keep.textContent=run?.temporary?'Keep run':'Run retained';
   const img=document.getElementById('map');
   img.onload=()=>{
    if(viewedMapId!==payload.map.id){viewedMapId=payload.map.id;resetMapView();}
@@ -332,6 +336,16 @@ document.getElementById('metric').onchange=draw;
 document.getElementById('unmeasured').onchange=draw;
 document.getElementById('mapSelect').onchange=loadData;
 document.getElementById('refresh').onclick=loadData;
+document.getElementById('keepRun').onclick=async()=>{
+ const button=document.getElementById('keepRun');button.disabled=true;
+ try{
+  const response=await fetch('/api/keep-run',{method:'POST',headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({run_id:payload.run.id})});
+  if(!response.ok)throw new Error(`HTTP ${response.status}`);
+  await loadData();
+ }catch(error){document.getElementById('loadStatus').textContent=`Could not keep run: ${error.message}`;
+  button.disabled=false;}
+};
 document.getElementById('export').onclick=()=>{
  const image=document.getElementById('map'),overlay=document.getElementById('overlay');
  const output=document.createElement('canvas');output.width=overlay.width;
@@ -430,7 +444,7 @@ class ViewerHandler(BaseHTTPRequestHandler):
             return int(query["map_id"][0])
         latest = database.latest_map()
         if latest is None:
-            raise RuntimeError("The database contains no maps")
+            raise LookupError("The database contains no maps yet")
         return int(latest["id"])
 
     def _send(self, body: bytes, content_type: str) -> None:
@@ -443,6 +457,39 @@ class ViewerHandler(BaseHTTPRequestHandler):
         self.wfile.flush()
         self.log_message("response sent: %s, %d bytes in %.3fs", self.path, len(body), monotonic() - started)
 
+    def do_POST(self) -> None:
+        """Promote exactly one run; viewing never creates or cleans runs."""
+        if urlparse(self.path).path != '/api/keep-run':
+            self.send_error(404)
+            return
+        origin = self.headers.get('Origin')
+        if origin and urlparse(origin).netloc != self.headers.get('Host'):
+            self.send_error(403, 'Cross-origin writes are not allowed')
+            return
+        try:
+            length = int(self.headers.get('Content-Length', '0'))
+            if not 0 < length <= 1024 or self.headers.get('Content-Type') != 'application/json':
+                raise ValueError('Expected a small JSON request')
+            data = json.loads(self.rfile.read(length))
+            run_id = data.get('run_id') if isinstance(data, dict) else None
+            if type(run_id) is not int or run_id < 0:
+                raise ValueError('Invalid run ID')
+            database = DatabaseManager(self.db_path)
+            try:
+                found = database.keep_run(run_id)
+            finally:
+                database.close()
+            if not found:
+                self.send_error(404, 'Run no longer exists')
+                return
+            self._send(b'{"kept":true}', 'application/json')
+        except (ValueError, TypeError):
+            self.send_error(400, 'Invalid keep-run request')
+        except sqlite3.Error:
+            self.send_error(503, 'Database unavailable; retry keeping the run')
+        except (BrokenPipeError, ConnectionResetError, TimeoutError):
+            pass
+
     def do_GET(self) -> None:
         started = monotonic()
         try:
@@ -451,6 +498,8 @@ class ViewerHandler(BaseHTTPRequestHandler):
             # A browser can cancel a request during navigation or refresh.
             # The response cannot be delivered; keep serving other requests.
             self.log_message("client disconnected or socket timed out: %s", self.path)
+        except LookupError:
+            self.send_error(503, "No map has been captured yet; retry after a map is available")
         except sqlite3.Error as error:
             self.log_message("database error for %s: %s", self.path, error)
             try:
@@ -472,8 +521,9 @@ class ViewerHandler(BaseHTTPRequestHandler):
             self.send_response(204)
             self.end_headers()
             return
-        database = DatabaseManager(self.db_path, read_only=True)
+        database = DatabaseManager(self.db_path)
         try:
+            database.conn.execute('BEGIN')
             map_id = self._map_id(database)
             map_data = database.get_map(map_id)
             if map_data is None:
@@ -489,15 +539,18 @@ class ViewerHandler(BaseHTTPRequestHandler):
                     key: value for key, value in map_data.items()
                     if key not in ("image_data", "yaml_text", "orientation_yaml")
                 }
+                run = database.get_run(map_data["run_id"]) if "run_id" in map_data else None
+                cell_size = run['cell_size'] if run else self.cell_size
                 body = json.dumps(
                     {
                         "maps": database.list_maps(),
+                        "run": run,
                         "map": public_map,
                         "orientation": load_saved_orientation(map_data, self.db_path),
-                        "cell_size": self.cell_size,
+                        "cell_size": cell_size,
                         "cells": cells,
                         "surveys": database.get_surveys(map_id),
-                        "free_cells": free_cell_centers(map_data, self.cell_size),
+                        "free_cells": free_cell_centers(map_data, cell_size),
                     }
                 ).encode()
                 self._send(body, "application/json")

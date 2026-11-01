@@ -34,9 +34,83 @@ Version 2 replaces that architecture:
   removed. Passive collection, survey results, RViz, and the browser now share
   one schema.
 
+## Collection runs, simulation and live maps
+
+**This version requires a newly created database. There is no schema migration.**
+Preserve existing databases separately before selecting a fresh path for this
+version. Each suite launch creates one run and passes its ID to all collection
+nodes. Source choices are launch arguments, not YAML switches:
+
+| Argument | Choices | Default |
+|---|---|---|
+| `map_source` | `saved`, `live` | `saved` |
+| `wifi_source` | `hardware`, `simulated`, `topic` | `hardware` |
+| `temporary_run` | `auto`, `true`, `false` | `auto` |
+| `map_topic` | Full `nav_msgs/OccupancyGrid` topic | `map` |
+| `wifi_topic` | Wi-Fi measurement topic | `wifi/measurements` |
+| `wifi_sim_seed` | Reproducible simulator seed | `42` |
+| `use_sim_time` | ROS simulation clock | `false` |
+
+`auto` marks simulation or live-map runs temporary; other runs are retained.
+At the **next collection startup**, the previous temporary run and all its maps,
+cells, surveys and orientation metadata are deleted in one transaction. Shutdown,
+opening the viewer and refreshing never delete data. There is one temporary run
+per database; run only one collection suite against it at a time.
+
+After stopping collection, launch the viewer separately. Temporary map choices
+are labeled `[temporary]`. **Keep run** promotes the selected map's entire run,
+including accumulated measurements and map snapshots. The viewer opens the
+database read/write; promotion persists immediately and is safe to retry. Each
+run also records its cell size, which the viewer uses for analysis.
+
+A fresh SLAM simulation can collect without saving any map files:
+
+```bash
+ros2 launch wifi_logger_visualizer wifi_logger_visualizer.launch.py \
+  db_path:=~/launch/wifi_data_v2.db \
+  map_source:=live wifi_source:=simulated use_sim_time:=true
+```
+
+For real hardware collecting against a growing SLAM map, use
+`map_source:=live wifi_source:=hardware`. For a saved raster, use
+`map_source:=saved map_yaml_path:=/path/to/map.yaml`. Topic input can also be
+selected without starting the simulator with `wifi_source:=topic`.
+
+In `articubot_one`, Seggy and Dragger pass these choices directly. Their
+`use_sim_time:=true` defaults select simulated Wi-Fi, live maps, and disable
+active surveys. Hardware defaults select hardware Wi-Fi and saved maps. Override
+with `wifi_source`, `wifi_map_source`, `wifi_map_topic`, `wifi_temporary_run`,
+`wifi_sim_seed`, and `wifi_active_survey`. The web viewer is separate by default.
+
+Live collection waits for its first valid occupancy grid and updates one map
+row at most every two seconds (`map_update_interval` on the logger). Raster,
+geometry and revision change atomically; Wi-Fi cells retain map-frame positions.
+Only full occupancy grids with an axis-aligned origin in the configured map frame
+are accepted. Loop closures do not retrospectively relocate old measurements.
+Live snapshots do not inherit saved-map orientation sidecars. The initial
+simulator position is captured independently of saved-map readiness.
+
+`survey_sim_node.py` simulates **passive Wi-Fi only**, with one access point
+anchored to the first fresh map-frame robot pose plus optional `ap_offset_x/y`.
+It models distance-based signal strength, link rates, counters and disconnection;
+noise defaults to zero. Its ROS parameters include `reference_signal_dbm`,
+`path_loss_exponent`, `noise_stddev`, `disconnect_dbm`, `max_rate_mbps`, `ssid`,
+`bssid`, `frequency_mhz`, `seed` and `publish_frequency`. A backward clock jump
+resets the anchor and counters. It publishes no TF/GPS and writes no database.
+Optional GPS continues to use the existing `use_gps` and NavSatFix path.
+
+The measurement interface uses `std_msgs/String` containing validated JSON:
+`schema_version: 1`, `stamp_ns` as a decimal ROS nanosecond string, and `sample`
+containing `connected`, `interface`, `ssid`, `bssid`, `frequency_mhz`,
+`signal_dbm`, `tx_bitrate_mbps`, `rx_bitrate_mbps`, `tx_retries`, and `tx_failed`.
+Unavailable fields are JSON null. The logger rejects malformed/future/stale
+samples, consumes each stamp once, and looks up TF at measurement time. Topic
+mode never detects a host Wi-Fi interface or runs `iw`. Active ping/iperf3 surveys
+are rejected for simulated/topic input; they remain available for hardware input.
+
 ## Data model
 
-- Maps are identified by a SHA-256 digest of both the map YAML and image
+- Within a collection run, saved maps are identified by a SHA-256 digest of both the map YAML and image
   contents. The YAML and image are stored in SQLite, so an offline snapshot can
   reproduce the background map.
 - Observations use 25 cm cells by default.

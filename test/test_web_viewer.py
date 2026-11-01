@@ -205,3 +205,46 @@ def test_api_includes_saved_orientation(tmp_path):
     response = json.loads(handler._send.call_args.args[0])
     assert response['orientation']['valid']
     assert response['orientation']['north_rotation_in_image_deg'] == 30.
+
+
+def test_keep_run_http_promotes_and_survives_next_start(tmp_path):
+    import http.client
+    import json
+    import threading
+    from wifi_logger_visualizer.web_viewer import ViewerHTTPServer
+    from wifi_logger_visualizer.database_manager import DatabaseManager
+    from wifi_logger_visualizer.map_data import load_map
+    from test_database import write_map
+
+    path = str(tmp_path/'wifi.db')
+    db = DatabaseManager(path)
+    run = db.start_run('saved', 'simulated')
+    map_id = db.register_map(load_map(str(write_map(tmp_path))), run)
+    db.close()
+    class Handler(ViewerHandler):
+        db_path = path
+        def log_message(self, *args):
+            pass
+    server = ViewerHTTPServer(('127.0.0.1', 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        conn = http.client.HTTPConnection(*server.server_address, timeout=5)
+        conn.request('GET', '/api/data')
+        response = conn.getresponse()
+        assert response.status == 200
+        assert json.loads(response.read())['run']['temporary'] == 1
+        conn.request('POST', '/api/keep-run', json.dumps({'run_id': run}), {'Content-Type': 'application/json'})
+        response = conn.getresponse()
+        assert response.status == 200
+        response.read()
+        conn.close()
+        db = DatabaseManager(path)
+        db.start_run('live', 'simulated')
+        assert db.get_map(map_id)
+        assert db.get_run(run)['temporary'] == 0
+        db.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)

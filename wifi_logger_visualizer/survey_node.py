@@ -169,6 +169,10 @@ class WifiSurveyNode(Node):
         super().__init__("wifi_survey_node")
         self.declare_parameter("db_path", "~/.ros/titania_wifi.db")
         self.declare_parameter("map_yaml_path", "")
+        self.declare_parameter("run_id", 0)
+        self.declare_parameter("map_source", "saved")
+        self.run_id = int(self.get_parameter("run_id").value)
+        self.map_source = str(self.get_parameter("map_source").value)
         self.declare_parameter("target_host", "amdc")
         self.declare_parameter("trace_subprocess_runs", True)
         self._trace_subprocess = node_subprocess_trace(self)
@@ -179,12 +183,13 @@ class WifiSurveyNode(Node):
         self.declare_parameter("revisit_interval", 300.0)
         self.declare_parameter("iperf_duration", 3)
         map_path = str(self.get_parameter("map_yaml_path").value)
-        if not map_path:
+        if self.map_source == "saved" and not map_path:
             raise ValueError("map_yaml_path is required")
 
         self.db_path = str(self.get_parameter("db_path").value)
         database = DatabaseManager(self.db_path)
-        self.map_id = database.register_map(load_map(map_path))
+        self.map_id = (database.register_map(load_map(map_path), self.run_id)
+                       if self.map_source == 'saved' else None)
         database.close()
         self.target_host = str(self.get_parameter("target_host").value)
         self.cell_size = float(self.get_parameter("cell_size").value)
@@ -272,7 +277,8 @@ class WifiSurveyNode(Node):
         database = None
         try:
             database = DatabaseManager(self.db_path)
-            database.refresh_map_orientation(self.map_id)
+            if self.map_source == 'saved':
+                database.refresh_map_orientation(self.map_id)
         except sqlite3.Error as error:
             self.get_logger().warning(f"Could not refresh saved map orientation: {error}")
         finally:
@@ -280,6 +286,16 @@ class WifiSurveyNode(Node):
                 database.close()
 
     def _tick(self) -> None:
+        if self.map_id is None:
+            database = DatabaseManager(self.db_path)
+            try:
+                current = database.run_map(self.run_id)
+                if current:
+                    self.map_id = current['id']
+            finally:
+                database.close()
+            if self.map_id is None:
+                return
         if self.future is not None and self.future.done():
             self._finish_survey()
         if self.recovery_active or self.future is not None:
