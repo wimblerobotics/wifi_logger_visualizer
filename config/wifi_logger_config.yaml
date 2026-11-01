@@ -10,6 +10,8 @@
 /wifi_logger_node:
   ros__parameters:
     gps_topic: "/gps/filtered"
+    orientation_topic: "localization/map_orientation"  # Optional live-map orientation estimate
+    orientation_max_age: 2.0  # Seconds in ROS time; checked during live capture only
     gps_max_age: 2.0  # Seconds, based on NavSatFix source stamp in the ROS clock
     map_frame: "map"
     robot_frame: "base_link"

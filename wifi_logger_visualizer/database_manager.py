@@ -1,10 +1,11 @@
 from datetime import datetime, timezone
 from pathlib import Path
 import sqlite3
+import yaml
 from typing import Any, Dict, Iterable, Optional
 
 from wifi_logger_visualizer.gps_data import GPS_COLUMNS
-from wifi_logger_visualizer.orientation_data import read_orientation_snapshot
+from wifi_logger_visualizer.orientation_data import read_orientation_snapshot, _validated_orientation
 
 
 PASSIVE_FIELDS = (
@@ -181,15 +182,22 @@ class DatabaseManager:
         row = self.conn.execute("SELECT * FROM maps WHERE run_id=? ORDER BY id DESC LIMIT 1", (run_id,)).fetchone()
         return dict(row) if row else None
 
-    def update_live_map(self, run_id: int, map_data) -> int:
+    def update_live_map(self, run_id: int, map_data, orientation_document=None) -> int:
         """Replace one session raster atomically without moving stored cells."""
         run = self.get_run(run_id)
         if not run or run['map_source'] != 'live':
             raise ValueError("Live updates require a live-map run")
         current = self.run_map(run_id)
         if current is None:
-            return self.register_map(map_data, run_id)
+            map_id = self.register_map(map_data, run_id)
+            if orientation_document is not None:
+                with self.conn:
+                    self._write_orientation_document(map_id, map_data, orientation_document)
+            return map_id
         if current['content_hash'] == map_data['content_hash']:
+            if orientation_document is not None:
+                with self.conn:
+                    self._write_orientation_document(current['id'], map_data, orientation_document)
             return current['id']
         fields = ('content_hash', 'yaml_text', 'image_name', 'image_data', 'resolution',
                   'origin_x', 'origin_y', 'origin_yaw', 'width', 'height', 'negate',
@@ -203,7 +211,21 @@ class DatabaseManager:
                 'orientation_saved_at=NULL WHERE id=?',
                 (*[map_data[key] for key in fields], current['id']),
             )
+            if orientation_document is not None:
+                self._write_orientation_document(current['id'], map_data, orientation_document)
         return current['id']
+
+    def _write_orientation_document(self, map_id, map_data, document):
+        """Write all normalized fields and full metadata in the caller transaction."""
+        summary = _validated_orientation(document, map_data)
+        self.conn.execute(
+            """UPDATE maps SET orientation_yaml=?,orientation_captured_at=?,orientation_valid=?,
+               orientation_reason=?,map_x_heading_from_east_deg=?,orientation_uncertainty_deg=?,
+               orientation_saved_at=? WHERE id=?""",
+            (yaml.safe_dump(document, sort_keys=False), utc_now(), int(summary['valid']),
+             summary.get('reason', ''), summary.get('map_x_heading_from_east_deg'),
+             summary.get('uncertainty_deg'), document.get('saved_at'), map_id),
+        )
 
     def register_map(self, map_data: Dict[str, Any], run_id: int = 0) -> int:
         if not run_id:

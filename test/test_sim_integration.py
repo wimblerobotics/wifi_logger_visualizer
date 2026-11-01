@@ -1,5 +1,6 @@
 """Exercise real ROS clock, TF, grid and measurement transport end to end."""
 import time
+import json
 
 import rclpy
 from geometry_msgs.msg import TransformStamped
@@ -7,6 +8,7 @@ from nav_msgs.msg import OccupancyGrid
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 from rosgraph_msgs.msg import Clock
+from std_msgs.msg import String
 from tf2_ros import TransformBroadcaster
 
 from wifi_logger_visualizer.database_manager import DatabaseManager
@@ -36,6 +38,7 @@ def test_simulator_collects_live_map_over_ros_topics(tmp_path):
             executor.add_node(node)
         clock = helper.create_publisher(Clock, '/clock', 10)
         maps = helper.create_publisher(OccupancyGrid, 'map', 10)
+        orientations = helper.create_publisher(String, 'localization/map_orientation', 10)
         broadcaster = TransformBroadcaster(helper)
         # Allow DDS discovery, then continuously advance simulation with fresh TF.
         deadline = time.monotonic()+1.
@@ -46,6 +49,10 @@ def test_simulator_collects_live_map_over_ros_topics(tmp_path):
             stamp.clock.sec = 10 + tick//10
             stamp.clock.nanosec = (tick%10)*100_000_000
             clock.publish(stamp)
+            orientations.publish(String(data=json.dumps(dict(schema_version=1, valid=True, reason='',
+                map_frame='map', robot_frame='base_link', published_at_ros_ns=stamp.clock.sec*1_000_000_000+stamp.clock.nanosec,
+                stamp=stamp.clock.sec+stamp.clock.nanosec/1e9, reference='true_north', source='imu_and_tf',
+                map_x_heading_from_east_deg=30., north_yaw_in_map_deg=60., uncertainty_deg=5.))))
             tf = TransformStamped()
             tf.header.stamp = stamp.clock
             tf.header.frame_id = 'map'
@@ -73,6 +80,9 @@ def test_simulator_collects_live_map_over_ros_topics(tmp_path):
             maps = db.list_maps()
             assert len(maps) == 1 and maps[0]['width'] == 48
             assert maps[0]['revision'] == 2
+            row = db.get_map(maps[0]['id'])
+            assert row['orientation_valid'] == 1
+            assert row['map_x_heading_from_east_deg'] == 30.
             cells = db.get_cells(maps[0]['id'])
             assert len(cells) >= 5
             assert all(cell['interface'] == 'simulated' for cell in cells)

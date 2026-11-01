@@ -16,6 +16,7 @@ from std_msgs.msg import Bool, String
 from sensor_msgs.msg import NavSatFix
 from nav_msgs.msg import OccupancyGrid
 from wifi_logger_visualizer.live_map import occupancy_snapshot
+from wifi_logger_visualizer.orientation_data import live_orientation_document
 from wifi_logger_visualizer.wifi_measurement import decode_measurement
 from tf2_ros import Buffer, TransformException, TransformListener
 
@@ -35,7 +36,8 @@ class WifiDataCollector(Node):
         self.declare_parameter("map_yaml_path", "")
         for name, value in dict(run_id=0, map_source='saved', map_topic='map',
                                 map_update_interval=2., wifi_source='hardware',
-                                wifi_topic='wifi/measurements', wifi_max_age=2.).items():
+                                wifi_topic='wifi/measurements', wifi_max_age=2.,
+                                orientation_topic='localization/map_orientation', orientation_max_age=2.).items():
             self.declare_parameter(name, value)
         self.run_id = int(self.get_parameter('run_id').value)
         self.map_source = str(self.get_parameter('map_source').value)
@@ -50,6 +52,10 @@ class WifiDataCollector(Node):
         self.last_wifi_stamp = None
         self.last_clock_ns = None
         self.pending_map = None
+        self.latest_orientation = None
+        self.orientation_max_age = float(self.get_parameter("orientation_max_age").value)
+        if not math.isfinite(self.orientation_max_age) or self.orientation_max_age <= 0:
+            raise ValueError("orientation_max_age must be finite and positive")
         self.declare_parameter("trace_subprocess_runs", True)
         self._trace_subprocess = node_subprocess_trace(self)
         self.declare_parameter("wifi_interface", "")
@@ -96,6 +102,8 @@ class WifiDataCollector(Node):
         else:
             self.create_subscription(String, str(self.get_parameter('wifi_topic').value), self._wifi_callback, 10)
         if self.map_source == 'live':
+            self.create_subscription(String, str(self.get_parameter('orientation_topic').value),
+                                     self._orientation_callback, 10)
             self.create_subscription(OccupancyGrid, str(self.get_parameter('map_topic').value),
                                      self._map_callback, qos_profile_sensor_data)
             self.create_timer(self.map_update_interval, self._store_live_map)
@@ -144,13 +152,27 @@ class WifiDataCollector(Node):
     def _map_callback(self, message):
         self.pending_map = message
 
+    def _orientation_callback(self, message):
+        try:
+            estimate = json.loads(message.data)
+            if not isinstance(estimate, dict):
+                raise ValueError('Expected an orientation object')
+            self.latest_orientation = estimate
+        except (ValueError, TypeError) as error:
+            self.latest_orientation = None
+            self.get_logger().warning(f'Ignoring malformed live orientation: {error}', throttle_duration_sec=10.)
+
     def _store_live_map(self):
-        if self.pending_map is None:
-            return
         message, self.pending_map = self.pending_map, None
         try:
-            snapshot = occupancy_snapshot(message, self.map_frame)
-            self.map_id = self.database.update_live_map(self.run_id, snapshot)
+            snapshot = (occupancy_snapshot(message, self.map_frame) if message is not None
+                        else self.database.get_map(self.map_id) if self.map_id is not None else None)
+            if snapshot is None:
+                return
+            document = live_orientation_document(snapshot, self.latest_orientation,
+                         self.get_clock().now().nanoseconds, self.orientation_max_age,
+                         self.map_frame, self.robot_frame)
+            self.map_id = self.database.update_live_map(self.run_id, snapshot, document)
         except (ValueError, sqlite3.Error) as error:
             self.get_logger().warning(f'Could not capture live map: {error}', throttle_duration_sec=10.)
 

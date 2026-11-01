@@ -35,8 +35,8 @@ def occupancy_snapshot(message, map_frame='map'):
     image = f'P5\n{width} {height}\n255\n'.encode() + np.flipud(pixels.reshape(height, width)).tobytes()
     origin = [info.origin.position.x, info.origin.position.y, yaw]
     text = yaml.safe_dump(dict(image='live.pgm', resolution=resolution, origin=origin,
-                               negate=0, occupied_thresh=.65, free_thresh=.25))
+                               mode='trinary', negate=0, occupied_thresh=.65, free_thresh=.196))
     return dict(content_hash=hashlib.sha256(text.encode()+b'\0'+image).hexdigest(),
                 source_yaml_path='live://map', yaml_text=text, image_name='live.pgm',
                 image_data=image, resolution=resolution, origin_x=origin[0], origin_y=origin[1],
-                origin_yaw=yaw, width=width, height=height, negate=0, occupied_thresh=.65, free_thresh=.25)
+                origin_yaw=yaw, width=width, height=height, mode='trinary', negate=0, occupied_thresh=.65, free_thresh=.196)

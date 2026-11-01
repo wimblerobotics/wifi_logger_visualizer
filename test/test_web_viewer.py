@@ -308,3 +308,32 @@ def test_unrelated_server_startup_error_is_not_hidden(tmp_path):
         with pytest.raises(OSError) as failure:
             main()
     assert failure.value is error
+
+
+def test_read_only_viewer_downloads_standard_map_bundle(tmp_path):
+    import io
+    import json
+    import zipfile
+    from wifi_logger_visualizer.database_manager import DatabaseManager
+    from wifi_logger_visualizer.map_data import load_map
+    from test_database import write_map
+    path = str(tmp_path/'wifi.db')
+    db = DatabaseManager(path)
+    map_id = db.register_map(load_map(str(write_map(tmp_path))))
+    db.close()
+    handler = object.__new__(ViewerHandler)
+    handler.path = '/api/export-map'
+    handler.read_only = True
+    handler.db_path = path
+    data = json.dumps(dict(map_id=map_id, name='office')).encode()
+    handler.headers = {'Content-Length': str(len(data)), 'Content-Type': 'application/json'}
+    handler.rfile = io.BytesIO(data)
+    handler._send = Mock()
+    handler.send_error = Mock()
+    handler.do_POST()
+    handler.send_error.assert_not_called()
+    body, content_type = handler._send.call_args.args
+    assert content_type == 'application/zip'
+    assert handler._send.call_args.kwargs['filename'] == 'office.zip'
+    with zipfile.ZipFile(io.BytesIO(body)) as archive:
+        assert 'office.yaml' in archive.namelist()

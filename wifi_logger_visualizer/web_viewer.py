@@ -17,6 +17,7 @@ import matplotlib.pyplot as plt
 from wifi_logger_visualizer.database_manager import DatabaseManager
 from wifi_logger_visualizer.map_data import decode_pgm, free_cell_centers
 from wifi_logger_visualizer.orientation_data import load_saved_orientation
+from wifi_logger_visualizer.map_export import export_map_bundle
 import yaml
 
 
@@ -80,6 +81,7 @@ button:hover { background:#45464a; }
 <option value="age">Observation age</option><option value="bssid">Access point</option>
 </select></label>
 <label><input id="unmeasured" type="checkbox"> Highlight unmeasured free cells</label>
+<label>Map name <input id="mapName" type="text" maxlength="100" placeholder="office" value="map"></label><button id="saveMap">Save map files</button>
 <button id="keepRun" disabled hidden>Promote</button><button id="fitMap" title="Reset zoom and pan">Fit map</button><button id="refresh">Refresh</button><button id="export">Export PNG</button></div>
 <div id="content"><div id="viewport" title="Scroll to zoom; drag to pan; double-click to fit"><div id="wrap"><img id="map" alt="Wi-Fi coverage map"><canvas id="overlay"></canvas></div></div>
 <div id="compass"><div id="compassTitle">Saved orientation unavailable</div>
@@ -172,9 +174,10 @@ function drawOrientation(){
  const details=document.getElementById('compassDetails');
  const available=orientation?.valid===true;
  rose.style.display=available?'block':'none';
- title.textContent=available?'True North (saved)':'Saved orientation unavailable';
+ const live=payload.run?.map_source==='live';
+ title.textContent=available?(live?'True North (captured)':'True North (saved)'):'Orientation unavailable';
  document.getElementById('compass').title=available&&orientation.saved_at?
-  'Map saved: '+orientation.saved_at:'';
+  (live?'Orientation captured: ':'Map saved: ')+orientation.saved_at:'';
  if(!available){details.textContent=orientation?.reason||'No saved orientation';return;}
  drawCompass(rose.getContext('2d'),0,0,120,orientation.north_rotation_in_image_deg);
  const uncertainty=typeof orientation.uncertainty_deg==='number'?
@@ -310,7 +313,7 @@ async function loadData(){
   const sel=document.getElementById('mapSelect');
   sel.replaceChildren();
   for(const m of payload.maps){const o=document.createElement('option');o.value=m.id;
-   const saved=m.orientation_saved_at ? new Date(m.orientation_saved_at) : null;
+   const saved=m.map_source!=='live'&&m.orientation_saved_at ? new Date(m.orientation_saved_at) : null;
    const hasSaved=saved&&!Number.isNaN(saved.getTime());
    const timestamp=hasSaved ? saved : (m.captured_at ? new Date(m.captured_at) : null);
    const timeLabel=timestamp&&!Number.isNaN(timestamp.getTime())
@@ -339,6 +342,22 @@ document.getElementById('metric').onchange=draw;
 document.getElementById('unmeasured').onchange=draw;
 document.getElementById('mapSelect').onchange=loadData;
 document.getElementById('refresh').onclick=loadData;
+document.getElementById('saveMap').onclick=async()=>{
+ const button=document.getElementById('saveMap'),status=document.getElementById('loadStatus');
+ if(!payload?.map){status.textContent='Wait for a map to load before saving.';return;}
+ const name=document.getElementById('mapName').value.trim();
+ button.disabled=true;status.textContent='Preparing map files...';
+ try{
+  const response=await fetch('/api/export-map',{method:'POST',headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({map_id:payload.map.id,name})});
+  if(!response.ok)throw new Error(await response.text());
+  const blob=await response.blob(),url=URL.createObjectURL(blob),link=document.createElement('a');
+  link.href=url;link.download=name+'.zip';document.body.append(link);link.click();link.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),60000);
+  status.textContent='Map files downloaded. Extract the ZIP before loading the map YAML.';
+ }catch(error){status.textContent=`Could not save map: ${error.message}`;}
+ finally{button.disabled=false;}
+};
 document.getElementById('keepRun').onclick=async()=>{
  const button=document.getElementById('keepRun');button.disabled=true;
  try{
@@ -452,18 +471,52 @@ class ViewerHandler(BaseHTTPRequestHandler):
             raise LookupError("The database contains no maps yet")
         return int(latest["id"])
 
-    def _send(self, body: bytes, content_type: str) -> None:
+    def _send(self, body: bytes, content_type: str, filename=None) -> None:
         started = monotonic()
         self.send_response(200)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
+        if filename:
+            self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
         self.end_headers()
         self.wfile.write(body)
         self.wfile.flush()
         self.log_message("response sent: %s, %d bytes in %.3fs", self.path, len(body), monotonic() - started)
 
+    def _export_map(self):
+        """Download standard map files without writing the database or server disk."""
+        origin = self.headers.get('Origin')
+        if origin and urlparse(origin).netloc != self.headers.get('Host'):
+            self.send_error(403, 'Cross-origin exports are not allowed')
+            return
+        try:
+            length = int(self.headers.get('Content-Length', '0'))
+            if not 0 < length <= 1024 or self.headers.get('Content-Type') != 'application/json':
+                raise ValueError('Expected a small JSON request')
+            data = json.loads(self.rfile.read(length))
+            if not isinstance(data, dict) or type(data.get('map_id')) is not int or data['map_id'] <= 0:
+                raise ValueError('Select a valid map')
+            name = data.get('name')
+            database = DatabaseManager(self.db_path, read_only=True)
+            try:
+                bundle = export_map_bundle(database, data['map_id'], name)
+            finally:
+                database.close()
+            self._send(bundle, 'application/zip', filename=name+'.zip')
+        except (ValueError, TypeError) as error:
+            self.send_error(400, str(error))
+        except LookupError:
+            self.send_error(404, 'Map no longer exists; refresh the viewer')
+        except sqlite3.Error:
+            self.send_error(503, 'Database unavailable; retry exporting the map')
+        except (BrokenPipeError, ConnectionResetError, TimeoutError):
+            pass
+
     def do_POST(self) -> None:
-        """Promote exactly one run; viewing never creates or cleans runs."""
+        """Export in either mode; promotion requires writable analysis mode."""
+        if urlparse(self.path).path == '/api/export-map':
+            self._export_map()
+            return
         if self.read_only:
             self.send_error(403, 'Viewer is read-only; restart with --analysis to promote runs')
             return

@@ -97,7 +97,11 @@ row at most every two seconds (`map_update_interval` on the logger). Raster,
 geometry and revision change atomically; Wi-Fi cells retain map-frame positions.
 Only full occupancy grids with an axis-aligned origin in the configured map frame
 are accepted. Loop closures do not retrospectively relocate old measurements.
-Live snapshots do not inherit saved-map orientation sidecars. The initial
+Live snapshots subscribe to `localization/map_orientation` and capture validated
+true-North estimates with their full diagnostics. Missing, invalid, wrong-frame,
+future or stale estimates are recorded as unavailable. `orientation_topic` and
+`orientation_max_age` (default 2 seconds) are logger parameters. Saved-map
+sidecars are not imported into live runs. The initial
 simulator position is captured independently of saved-map readiness.
 
 `survey_sim_node.py` simulates **passive Wi-Fi only**, with one access point
@@ -288,6 +292,23 @@ Select another robot config with `config_filepath:=/path/to/config.yaml`.
 It reads `db_path` and `cell_size` from the common `/**` parameters, and `host`, `port`,
 and optional `node_names` from `/**/wifi_web_viewer`.
 Explicit launch arguments (`db`, `host`, `port`, `cell_size`, `node_names`) override the YAML settings.
+
+### Save standard map files from the database
+
+Enter a **Map name** (a basename without extension, using letters, digits,
+underscores or hyphens) and select **Save map files**. The browser downloads
+`<name>.zip` containing `<name>.pgm`, `<name>.yaml`, and
+`<name>.orientation.yaml`. Extract the ZIP, then give the map YAML to Nav2's map
+server/AMCL, or to this suite's saved-map mode. This is separate from **Export
+PNG**, which produces a coverage visualization rather than a navigation map.
+
+Saving works in both read-only and analysis modes. It neither writes to the
+database nor promotes the run, and does not require the original map files or
+ROS to be running. Live runs export standard trinary maps. The sidecar is bound
+to the actual exported YAML/PGM hash; it preserves captured estimator timestamps
+and includes export/source provenance. If orientation was unavailable, the
+sidecar explicitly records an invalid estimate and reason. Captured orientation
+is not expired merely because the completed run is old.
 
 ### Saved map orientation
 

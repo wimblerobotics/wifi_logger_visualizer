@@ -129,3 +129,41 @@ def read_orientation_snapshot(map_data):
             result = dict(valid=False, reason='Saved orientation geometry does not match this map')
     saved_at = document.get('saved_at') if isinstance(document, dict) else None
     return raw, result, str(saved_at) if saved_at is not None else None
+
+
+def live_orientation_document(map_data, estimate, now_ns, max_age, map_frame, robot_frame):
+    """Bind a fresh estimator message to a captured live map, or record why not.
+
+    Freshness is evaluated only on collection. Export does not age out a saved
+    estimate after a run ends. Original estimator diagnostics are retained.
+    """
+    from datetime import datetime, timezone
+    from copy import deepcopy
+    orientation = deepcopy(estimate) if isinstance(estimate, dict) else {}
+    reason = ''
+    published = orientation.get('published_at_ros_ns')
+    stamp = orientation.get('stamp')
+    if not orientation:
+        reason = 'No live orientation estimate received'
+    elif type(orientation.get('schema_version')) is not int or orientation['schema_version'] != 1:
+        reason = 'Unsupported live orientation format'
+    elif orientation.get('map_frame') != map_frame or orientation.get('robot_frame') != robot_frame:
+        reason = 'Live orientation frames do not match collection frames'
+    elif orientation.get('valid') is not True:
+        reason = orientation.get('reason') or 'Live orientation estimate is unavailable'
+    elif type(published) is not int or not 0 <= now_ns-published <= max_age*1e9:
+        reason = 'Live orientation publication is stale or from a different clock'
+    elif not _finite_number(stamp) or not 0 <= now_ns/1e9-stamp <= max_age:
+        reason = 'Live orientation estimate is stale or from a different clock'
+    if reason:
+        orientation.update(valid=False, reason=reason)
+    document = dict(schema_version=1, map_file='live.yaml',
+                    map_content_hash=map_data['content_hash'],
+                    saved_at=datetime.now(timezone.utc).isoformat(),
+                    geometry=dict(resolution=map_data['resolution'],
+                                  origin=[map_data['origin_x'], map_data['origin_y'], map_data['origin_yaw']]),
+                    orientation=orientation)
+    summary = _validated_orientation(document, map_data)
+    if not summary['valid']:
+        orientation.update(valid=False, reason=summary['reason'])
+    return document
