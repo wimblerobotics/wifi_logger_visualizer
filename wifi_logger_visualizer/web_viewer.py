@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import errno
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import html
 import io
@@ -634,7 +635,19 @@ def main() -> None:
     ViewerHandler.use_gps = args.use_gps
     ViewerHandler.read_only = not args.analysis
     ViewerHandler.node_names = load_node_names(node_names_path)
-    server = ViewerHTTPServer((args.host, args.port), ViewerHandler)
+    try:
+        server = ViewerHTTPServer((args.host, args.port), ViewerHandler)
+    except OSError as error:
+        if error.errno != errno.EADDRINUSE:
+            raise
+        alternative_port = args.port + 1 if args.port < 65535 else 65534
+        raise SystemExit(
+            f"Cannot start Wi-Fi viewer: {args.host}:{args.port} is already in use.\n"
+            "Another viewer may already be running as part of the robot launch. "
+            "Stop that viewer, or choose a different port: "
+            f"port:={alternative_port} with ros2 launch "
+            f"(or --port {alternative_port} with the Python executable)."
+        ) from None
     print(f"Wi-Fi viewer: http://{args.host}:{args.port}")
     try:
         server.serve_forever()

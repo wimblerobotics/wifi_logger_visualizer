@@ -280,3 +280,31 @@ def test_get_uses_database_read_only_mode():
     with patch('wifi_logger_visualizer.web_viewer.DatabaseManager', return_value=database) as factory:
         handler._handle_get()
     factory.assert_called_once_with(handler.db_path, read_only=True)
+
+
+def test_port_conflict_reports_actionable_message_without_traceback(tmp_path, capsys):
+    import errno
+    from wifi_logger_visualizer.web_viewer import main
+    with patch('sys.argv', ['web_viewer.py', '--node-names', str(tmp_path/'names.yaml'), '--port', '8088']), \
+         patch('wifi_logger_visualizer.web_viewer.load_node_names', return_value={}), \
+         patch('wifi_logger_visualizer.web_viewer.ViewerHTTPServer',
+               side_effect=OSError(errno.EADDRINUSE, 'Address already in use')):
+        with pytest.raises(SystemExit) as stopped:
+            main()
+    message = str(stopped.value)
+    assert '8088 is already in use' in message
+    assert 'robot launch' in message
+    assert 'port:=8089' in message and '--port 8089' in message
+    assert 'Traceback' not in message + capsys.readouterr().err
+
+
+def test_unrelated_server_startup_error_is_not_hidden(tmp_path):
+    import errno
+    from wifi_logger_visualizer.web_viewer import main
+    error = OSError(errno.EACCES, 'Permission denied')
+    with patch('sys.argv', ['web_viewer.py', '--node-names', str(tmp_path/'names.yaml')]), \
+         patch('wifi_logger_visualizer.web_viewer.load_node_names', return_value={}), \
+         patch('wifi_logger_visualizer.web_viewer.ViewerHTTPServer', side_effect=error):
+        with pytest.raises(OSError) as failure:
+            main()
+    assert failure.value is error
