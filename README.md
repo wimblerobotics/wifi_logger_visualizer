@@ -296,7 +296,7 @@ Explicit launch arguments (`db`, `host`, `port`, `cell_size`, `node_names`) over
 ### Save standard map files from the database
 
 Enter a **Map name** (a basename without extension, using letters, digits,
-underscores or hyphens) and select **Save map files**. The browser downloads
+underscores or hyphens) and select **Export ZIP**. The browser downloads
 `<name>.zip` containing `<name>.pgm`, `<name>.yaml`, and
 `<name>.orientation.yaml`. Extract the ZIP, then give the map YAML to Nav2's map
 server/AMCL, or to this suite's saved-map mode. This is separate from **Export

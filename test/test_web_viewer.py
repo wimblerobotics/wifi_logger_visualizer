@@ -145,7 +145,7 @@ def test_robot_name_from_network_hostname(hostname, expected):
         page = rendered_html({})
     assert f'<title>{expected} Wi-Fi Map</title>' in page
     assert f'<h2>{expected} Wi-Fi coverage</h2>' in page
-    assert f'link.download="{expected.lower()}-wifi-map.png"' in page
+    assert "link.download=name+'.png'" in page
 
 
 def test_api_preserves_nanosecond_gps_timestamp():

@@ -81,8 +81,8 @@ button:hover { background:#45464a; }
 <option value="age">Observation age</option><option value="bssid">Access point</option>
 </select></label>
 <label><input id="unmeasured" type="checkbox"> Highlight unmeasured free cells</label>
-<label>Map name <input id="mapName" type="text" maxlength="100" placeholder="office" value="map"></label><button id="saveMap">Save map files</button>
-<button id="keepRun" disabled hidden>Promote</button><button id="fitMap" title="Reset zoom and pan">Fit map</button><button id="refresh">Refresh</button><button id="export">Export PNG</button></div>
+<button id="keepRun" disabled hidden>Promote</button><button id="fitMap" title="Reset zoom and pan">Fit map</button><button id="refresh">Refresh</button>
+<label>Map name <input id="mapName" type="text" maxlength="100" placeholder="office" value="map"></label><button id="saveMap">Export ZIP</button><button id="export">Export PNG</button></div>
 <div id="content"><div id="viewport" title="Scroll to zoom; drag to pan; double-click to fit"><div id="wrap"><img id="map" alt="Wi-Fi coverage map"><canvas id="overlay"></canvas></div></div>
 <div id="compass"><div id="compassTitle">Saved orientation unavailable</div>
 <canvas id="compassRose" width="120" height="120" role="img" aria-label="Saved true North direction"></canvas>
@@ -369,6 +369,11 @@ document.getElementById('keepRun').onclick=async()=>{
   button.disabled=false;}
 };
 document.getElementById('export').onclick=()=>{
+ const name=document.getElementById('mapName').value.trim();
+ if(!/^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/.test(name)){
+  document.getElementById('loadStatus').textContent='Enter a map name using letters, digits, underscores or hyphens (1–100 characters).';
+  return;
+ }
  const image=document.getElementById('map'),overlay=document.getElementById('overlay');
  const output=document.createElement('canvas');output.width=overlay.width;
  output.height=overlay.height;const context=output.getContext('2d');
@@ -377,7 +382,7 @@ document.getElementById('export').onclick=()=>{
   const size=Math.min(120,output.width/3,output.height/3);
   drawCompass(context,4,4,size,payload.orientation.north_rotation_in_image_deg);
  }
- const link=document.createElement('a');link.download=__MAP_DOWNLOAD_NAME__;
+ const link=document.createElement('a');link.download=name+'.png';
  link.href=output.toDataURL('image/png');link.click();};
 document.getElementById('overlay').onmousemove=e=>{
  if(mapDrag)return;
@@ -436,7 +441,6 @@ def robot_name() -> str:
 def rendered_html(node_names: dict[str, str], use_gps: bool = False, read_only: bool = True) -> str:
     name = robot_name()
     return (HTML.replace("__ROBOT_NAME__", html.escape(name))
-            .replace("__MAP_DOWNLOAD_NAME__", json.dumps(name.lower() + "-wifi-map.png"))
             .replace("__NODE_NAMES__", json.dumps(node_names, separators=(",", ":")))
             .replace("__USE_GPS__", json.dumps(use_gps))
             .replace("__READ_ONLY__", json.dumps(read_only)))
