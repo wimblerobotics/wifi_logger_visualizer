@@ -58,7 +58,7 @@ def test_startup_prints_effective_parameters(capsys, tmp_path):
     output = capsys.readouterr().out
     data, _ = json.JSONDecoder().raw_decode(output.split('Wi-Fi viewer parameters:\n')[1])
     assert data == dict(db=str(database), host='0.0.0.0', port=8089,
-                        cell_size=0.5, node_names=str(names), snapshot=None, use_gps=False)
+                        cell_size=0.5, node_names=str(names), snapshot=None, use_gps=False, analysis=False)
     server.server_close.assert_called_once()
 
 
@@ -223,6 +223,7 @@ def test_keep_run_http_promotes_and_survives_next_start(tmp_path):
     db.close()
     class Handler(ViewerHandler):
         db_path = path
+        read_only = False
         def log_message(self, *args):
             pass
     server = ViewerHTTPServer(('127.0.0.1', 0), Handler)
@@ -248,3 +249,34 @@ def test_keep_run_http_promotes_and_survives_next_start(tmp_path):
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+
+
+def test_read_only_viewer_rejects_promotion_before_opening_database():
+    handler = object.__new__(ViewerHandler)
+    handler.read_only = True
+    handler.path = '/api/keep-run'
+    handler.send_error = Mock()
+    with patch('wifi_logger_visualizer.web_viewer.DatabaseManager') as database:
+        handler.do_POST()
+    database.assert_not_called()
+    assert handler.send_error.call_args.args[0] == 403
+
+
+def test_viewer_html_exposes_mode_to_promotion_controls():
+    from wifi_logger_visualizer.web_viewer import rendered_html
+    assert 'const readOnly=true;' in rendered_html({})
+    assert 'const readOnly=false;' in rendered_html({}, read_only=False)
+
+
+def test_get_uses_database_read_only_mode():
+    handler = object.__new__(ViewerHandler)
+    handler.path = '/api/data'
+    handler.read_only = True
+    handler.db_path = '/tmp/read-only-example.db'
+    handler._map_id = Mock(return_value=1)
+    handler.send_error = Mock()
+    database = Mock()
+    database.get_map.return_value = None
+    with patch('wifi_logger_visualizer.web_viewer.DatabaseManager', return_value=database) as factory:
+        handler._handle_get()
+    factory.assert_called_once_with(handler.db_path, read_only=True)

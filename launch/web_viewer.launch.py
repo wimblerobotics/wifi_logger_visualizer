@@ -46,6 +46,11 @@ def _launch_viewer(context):
         "--cell-size", str(cell_size),
     ]
 
+    analysis = str(value('analysis', False)).lower()
+    if analysis not in ('true', 'false'):
+        raise ValueError('analysis must be true or false')
+    command.append('--analysis' if analysis == 'true' else '--read-only')
+
     node_names = value("node_names", viewer.get("node_names", ""))
     if node_names:
         command.extend(["--node-names", os.path.expanduser(str(node_names))])
@@ -68,6 +73,8 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument("config_filepath", default_value=config,
                               description="Wi-Fi YAML config; explicit launch arguments override it"),
+        DeclareLaunchArgument('analysis', default_value='false',
+                              description='Enable read/write post-run analysis and Promote'),
         DeclareLaunchArgument("db", default_value="",
                               description="Path to the V2 Wi-Fi SQLite database"),
         DeclareLaunchArgument("host", default_value="",

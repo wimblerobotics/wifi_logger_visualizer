@@ -20,7 +20,7 @@ from wifi_logger_visualizer.map_startup import wait_for_saved_map
 
 
 ARGUMENTS = dict(config_filepath='', monitoring='true', survey='false', visualization='true',
-                 overlay='true', web_viewer='false', db_path='', map_yaml_path='', cell_size='',
+                 overlay='true', web_viewer='true', db_path='', map_yaml_path='', cell_size='',
                  target_host='', map_check_interval='', map_source='saved', wifi_source='hardware',
                  map_topic='map', wifi_topic='wifi/measurements', use_sim_time='false',
                  temporary_run='auto', wifi_sim_seed='42')
@@ -93,7 +93,7 @@ def launch_suite(context):
     if enabled['web_viewer']:
         viewer = settings.get('/**/wifi_web_viewer', {}).get('ros__parameters', {})
         command = [ExecutableInPackage(package='wifi_logger_visualizer', executable='web_viewer.py'),
-                   '--db', db_path, '--cell-size', str(cell_size), '--host', str(viewer.get('host', '0.0.0.0')),
+                   '--read-only', '--db', db_path, '--cell-size', str(cell_size), '--host', str(viewer.get('host', '0.0.0.0')),
                    '--port', str(viewer.get('port', 8088))]
         if defaults.get('use_gps', False):
             command.append('--use-gps')

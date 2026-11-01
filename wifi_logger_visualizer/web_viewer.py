@@ -79,7 +79,7 @@ button:hover { background:#45464a; }
 <option value="age">Observation age</option><option value="bssid">Access point</option>
 </select></label>
 <label><input id="unmeasured" type="checkbox"> Highlight unmeasured free cells</label>
-<button id="keepRun" disabled>Keep run</button><button id="fitMap" title="Reset zoom and pan">Fit map</button><button id="refresh">Refresh</button><button id="export">Export PNG</button></div>
+<button id="keepRun" disabled hidden>Promote</button><button id="fitMap" title="Reset zoom and pan">Fit map</button><button id="refresh">Refresh</button><button id="export">Export PNG</button></div>
 <div id="content"><div id="viewport" title="Scroll to zoom; drag to pan; double-click to fit"><div id="wrap"><img id="map" alt="Wi-Fi coverage map"><canvas id="overlay"></canvas></div></div>
 <div id="compass"><div id="compassTitle">Saved orientation unavailable</div>
 <canvas id="compassRose" width="120" height="120" role="img" aria-label="Saved true North direction"></canvas>
@@ -98,6 +98,7 @@ const units={signal:'dBm',tx:'Mb/s',rx:'Mb/s',upload:'Mb/s',download:'Mb/s',
 const unmeasuredColor='rgba(65,105,225,.48)';
 const nodeNames=__NODE_NAMES__;
 const useGps=__USE_GPS__;
+const readOnly=__READ_ONLY__;
 function apLabel(bssid){
  if(!bssid)return 'Unknown Node';
  return (nodeNames[bssid.toLowerCase()]||'Unknown Node')+' ('+bssid+')';
@@ -317,8 +318,9 @@ async function loadData(){
   sel.value=payload.map.id;
   const run=payload.run;
   const keep=document.getElementById('keepRun');
-  keep.disabled=!run||!run.temporary;
-  keep.textContent=run?.temporary?'Keep run':'Run retained';
+  keep.hidden=readOnly;
+  keep.disabled=readOnly||!run||!run.temporary;
+  keep.textContent=run?.temporary?'Promote':'Run retained';
   const img=document.getElementById('map');
   img.onload=()=>{
    if(viewedMapId!==payload.map.id){viewedMapId=payload.map.id;resetMapView();}
@@ -411,12 +413,13 @@ def robot_name() -> str:
     return socket.gethostname().split(".", 1)[0].capitalize()
 
 
-def rendered_html(node_names: dict[str, str], use_gps: bool = False) -> str:
+def rendered_html(node_names: dict[str, str], use_gps: bool = False, read_only: bool = True) -> str:
     name = robot_name()
     return (HTML.replace("__ROBOT_NAME__", html.escape(name))
             .replace("__MAP_DOWNLOAD_NAME__", json.dumps(name.lower() + "-wifi-map.png"))
             .replace("__NODE_NAMES__", json.dumps(node_names, separators=(",", ":")))
-            .replace("__USE_GPS__", json.dumps(use_gps)))
+            .replace("__USE_GPS__", json.dumps(use_gps))
+            .replace("__READ_ONLY__", json.dumps(read_only)))
 
 
 class ViewerHTTPServer(ThreadingHTTPServer):
@@ -437,6 +440,7 @@ class ViewerHandler(BaseHTTPRequestHandler):
     cell_size = 0.25
     node_names: dict[str, str] = {}
     use_gps = False
+    read_only = True
 
     def _map_id(self, database: DatabaseManager) -> int:
         query = parse_qs(urlparse(self.path).query)
@@ -459,6 +463,9 @@ class ViewerHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         """Promote exactly one run; viewing never creates or cleans runs."""
+        if self.read_only:
+            self.send_error(403, 'Viewer is read-only; restart with --analysis to promote runs')
+            return
         if urlparse(self.path).path != '/api/keep-run':
             self.send_error(404)
             return
@@ -513,7 +520,7 @@ class ViewerHandler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if path == "/":
             self._send(
-                rendered_html(self.node_names, self.use_gps).encode(),
+                rendered_html(self.node_names, self.use_gps, self.read_only).encode(),
                 "text/html; charset=utf-8",
             )
             return
@@ -521,7 +528,7 @@ class ViewerHandler(BaseHTTPRequestHandler):
             self.send_response(204)
             self.end_headers()
             return
-        database = DatabaseManager(self.db_path)
+        database = DatabaseManager(self.db_path, read_only=self.read_only)
         try:
             database.conn.execute('BEGIN')
             map_id = self._map_id(database)
@@ -597,6 +604,11 @@ def main() -> None:
         help="YAML file containing an access_points BSSID-to-name mapping",
         default=None,
     )
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument('--analysis', action='store_true', default=False,
+                      help='Open read/write and enable Promote for post-run analysis')
+    mode.add_argument('--read-only', action='store_false', dest='analysis',
+                      help='View without database writes (default)')
     parser.add_argument("--snapshot", help="Create a consistent SQLite copy and exit")
     args = parser.parse_args()
     db_path = str(Path(args.db).expanduser().resolve())
@@ -620,6 +632,7 @@ def main() -> None:
     ViewerHandler.db_path = db_path
     ViewerHandler.cell_size = args.cell_size
     ViewerHandler.use_gps = args.use_gps
+    ViewerHandler.read_only = not args.analysis
     ViewerHandler.node_names = load_node_names(node_names_path)
     server = ViewerHTTPServer((args.host, args.port), ViewerHandler)
     print(f"Wi-Fi viewer: http://{args.host}:{args.port}")

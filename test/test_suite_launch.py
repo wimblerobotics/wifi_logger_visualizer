@@ -47,3 +47,12 @@ def test_invalid_launch_does_not_delete_existing_run(tmp_path):
     db = DatabaseManager(str(tmp_path/'wifi.db'))
     assert db.get_run(run)
     db.close()
+
+
+def test_automatic_viewer_is_enabled_and_explicitly_read_only(tmp_path):
+    assert ARGUMENTS['web_viewer'] == 'true'
+    with patch('wifi_logger_visualizer.suite_launch.ExecuteProcess') as process:
+        launch_suite(context(tmp_path, map_source='live', wifi_source='simulated'))
+    command = process.call_args.kwargs['cmd']
+    assert '--read-only' in command
+    assert '--analysis' not in command

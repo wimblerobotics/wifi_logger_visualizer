@@ -25,7 +25,7 @@ def context(tmp_path):
     }))
     ctx = LaunchContext()
     ctx.launch_configurations.update(config_filepath=str(config), db='', host='',
-                                     port='', cell_size='', node_names='', use_gps='')
+                                     port='', cell_size='', node_names='', use_gps='', analysis='false')
     return ctx
 
 
@@ -38,7 +38,7 @@ def command(context):
 def test_uses_yaml_settings(context):
     assert command(context) == [
         '--db', '/tmp/config.db', '--host', '127.0.0.1', '--port', '9000',
-        '--cell-size', '0.5', '--node-names', '/tmp/names.yaml',
+        '--cell-size', '0.5', '--read-only', '--node-names', '/tmp/names.yaml',
     ]
 
 
@@ -47,7 +47,7 @@ def test_arguments_override_yaml(context):
                                          port='8088', cell_size='0.25', node_names='/tmp/other.yaml')
     assert command(context) == [
         '--db', '/tmp/override.db', '--host', '0.0.0.0', '--port', '8088',
-        '--cell-size', '0.25', '--node-names', '/tmp/other.yaml',
+        '--cell-size', '0.25', '--read-only', '--node-names', '/tmp/other.yaml',
     ]
 
 
@@ -69,4 +69,13 @@ def test_shared_gps_setting_and_explicit_override(context):
     assert '--use-gps' not in command(context)
     context.launch_configurations['use_gps'] = 'invalid'
     with pytest.raises(ValueError, match='use_gps'):
+        command(context)
+
+
+def test_analysis_mode_enables_writable_viewer(context):
+    context.launch_configurations['analysis'] = 'true'
+    assert '--analysis' in command(context)
+    assert '--read-only' not in command(context)
+    context.launch_configurations['analysis'] = 'invalid'
+    with pytest.raises(ValueError, match='analysis'):
         command(context)

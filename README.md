@@ -57,10 +57,20 @@ cells, surveys and orientation metadata are deleted in one transaction. Shutdown
 opening the viewer and refreshing never delete data. There is one temporary run
 per database; run only one collection suite against it at a time.
 
-After stopping collection, launch the viewer separately. Temporary map choices
-are labeled `[temporary]`. **Keep run** promotes the selected map's entire run,
-including accumulated measurements and map snapshots. The viewer opens the
-database read/write; promotion persists immediately and is safe to retry. Each
+During simulation and hardware collection, the suite starts a read-only viewer
+at port 8088 by default (`web_viewer:=false` disables it). It never writes to the
+database and has no Promote action. Temporary map choices are labeled `[temporary]`.
+After stopping collection, launch the viewer with `analysis:=true` to open the
+database read/write. **Promote** retains the selected map's entire run, including
+accumulated measurements and map snapshots; it persists immediately and is safe to retry.
+
+```bash
+ros2 launch wifi_logger_visualizer web_viewer.launch.py \
+  db:=/home/sergei/robot_ws/wifi_data_v2.db analysis:=true
+```
+
+For the Python executable directly, use `--analysis` instead of `analysis:=true`.
+Stop the automatic viewer first, or choose another port for analysis. Each
 run also records its cell size, which the viewer uses for analysis.
 
 A fresh SLAM simulation can collect without saving any map files:
@@ -80,7 +90,7 @@ In `articubot_one`, Seggy and Dragger pass these choices directly. Their
 `use_sim_time:=true` defaults select simulated Wi-Fi, live maps, and disable
 active surveys. Hardware defaults select hardware Wi-Fi and saved maps. Override
 with `wifi_source`, `wifi_map_source`, `wifi_map_topic`, `wifi_temporary_run`,
-`wifi_sim_seed`, and `wifi_active_survey`. The web viewer is separate by default.
+`wifi_sim_seed`, and `wifi_active_survey`. The suite starts the web viewer read-only by default.
 
 Live collection waits for its first valid occupancy grid and updates one map
 row at most every two seconds (`map_update_interval` on the logger). Raster,
