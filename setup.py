@@ -27,6 +27,7 @@ setup(
             'wifi_logger_node = wifi_logger_visualizer.wifi_logger_node:main',
             'wifi_visualizer_node = wifi_logger_visualizer.wifi_visualizer_node:main',
             'wifi_survey_node = wifi_logger_visualizer.survey_node:main',
+            'wifi_overlay_node = wifi_logger_visualizer.wifi_overlay_node:main',
             'wifi_web_viewer = wifi_logger_visualizer.web_viewer:main',
         ],
     },

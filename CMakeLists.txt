@@ -16,8 +16,10 @@ ament_python_install_package(${PROJECT_NAME})
 # Install Python executables
 install(PROGRAMS
   wifi_logger_visualizer/wifi_logger_node.py
+  wifi_logger_visualizer/survey_sim_node.py
   wifi_logger_visualizer/survey_node.py
   wifi_logger_visualizer/wifi_visualizer_node.py
+  wifi_logger_visualizer/wifi_overlay_node.py
   wifi_logger_visualizer/web_viewer.py
   DESTINATION lib/${PROJECT_NAME}
 )

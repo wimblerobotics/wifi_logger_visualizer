@@ -6,17 +6,19 @@ import json
 import math
 import re
 import socket
+import sqlite3
 import subprocess
 from typing import Any, Dict, Optional, Tuple
 
-import rclpy
 from rclpy.duration import Duration
 from rclpy.node import Node
+from wifi_logger_visualizer.ros_runtime import run_node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.time import Time
 from std_msgs.msg import Bool, String
 from tf2_ros import Buffer, TransformException, TransformListener
 
+from wifi_logger_visualizer.subprocess_trace import node_subprocess_trace, trace_command
 from wifi_logger_visualizer.database_manager import DatabaseManager
 from wifi_logger_visualizer.map_data import cell_for_position, load_map
 from wifi_logger_visualizer.wifi_data_fetcher import WiFiDataFetcher
@@ -46,10 +48,10 @@ def iperf_mbps(output: str) -> float:
     return float(summary["bits_per_second"]) / 1_000_000.0
 
 
-def run_ping(host: str, count: int = 10, interval: float = 0.2) -> Dict[str, Any]:
+def run_ping(host: str, count: int = 10, interval: float = 0.2, trace=None) -> Dict[str, Any]:
     completed = subprocess.run(
-        ["ping", "-n", "-c", str(count), "-i", str(interval), "-W", "1", host],
-        check=False,
+        trace_command(["ping", "-n", "-c", str(count), "-i", str(interval), "-W", "1", host], trace),
+        check=False,  # not to raise an exception when the command exits with a nonzero status.
         capture_output=True,
         text=True,
         timeout=max(10.0, count * interval + 5.0),
@@ -60,7 +62,7 @@ def run_ping(host: str, count: int = 10, interval: float = 0.2) -> Dict[str, Any
     return parsed
 
 
-def run_iperf(host: str, duration: int, reverse: bool = False) -> float:
+def run_iperf(host: str, duration: int, reverse: bool = False, trace=None) -> float:
     command = [
         "iperf3",
         "-c",
@@ -74,12 +76,23 @@ def run_iperf(host: str, duration: int, reverse: bool = False) -> float:
     if reverse:
         command.append("--reverse")
     completed = subprocess.run(
-        command,
-        check=True,
+        trace_command(command, trace),
+        check=False,
         capture_output=True,
         text=True,
         timeout=duration + 15,
     )
+    try:
+        payload = json.loads(completed.stdout)
+    except ValueError:
+        payload = {}
+    error = payload.get("error") if isinstance(payload, dict) else None
+    if completed.returncode or error:
+        detail = error or completed.stderr.strip() or completed.stdout.strip() or "no diagnostic output"
+        direction = "download" if reverse else "upload"
+        raise RuntimeError(
+            f"iperf3 {direction} to {host} failed (exit {completed.returncode}): {detail}"
+        )
     return iperf_mbps(completed.stdout)
 
 
@@ -87,23 +100,25 @@ def perform_survey(
     target_host: str,
     duration: int,
     bssid: Optional[str],
+    trace=None,
 ) -> Dict[str, Any]:
-    target_address = socket.gethostbyname(target_host)
     result: Dict[str, Any] = {
         "measured_at": datetime.now(timezone.utc).isoformat(),
-        "target_address": target_address,
+        "target_address": None,
         "bssid": bssid,
         "success": False,
     }
     try:
-        idle = run_ping(target_address)
+        target_address = socket.gethostbyname(target_host)
+        result["target_address"] = target_address
+        idle = run_ping(target_address, trace=trace)
         result.update(
             idle_latency_ms=idle["latency_ms"],
             idle_jitter_ms=idle["jitter_ms"],
             idle_packet_loss_percent=idle["packet_loss_percent"],
         )
         ping_process = subprocess.Popen(
-            [
+            trace_command([
                 "ping",
                 "-n",
                 "-c",
@@ -113,13 +128,13 @@ def perform_survey(
                 "-W",
                 "1",
                 target_address,
-            ],
+            ], trace),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
         )
         try:
-            result["upload_mbps"] = run_iperf(target_address, duration)
+            result["upload_mbps"] = run_iperf(target_address, duration, trace=trace)
         finally:
             ping_stdout, ping_stderr = ping_process.communicate(
                 timeout=max(15, duration + 10)
@@ -133,7 +148,7 @@ def perform_survey(
             loaded_packet_loss_percent=loaded["packet_loss_percent"],
         )
         result["download_mbps"] = run_iperf(
-            target_address, duration, reverse=True
+            target_address, duration, reverse=True, trace=trace
         )
         result["success"] = True
         result["error_text"] = None
@@ -154,7 +169,13 @@ class WifiSurveyNode(Node):
         super().__init__("wifi_survey_node")
         self.declare_parameter("db_path", "~/.ros/titania_wifi.db")
         self.declare_parameter("map_yaml_path", "")
+        self.declare_parameter("run_id", 0)
+        self.declare_parameter("map_source", "saved")
+        self.run_id = int(self.get_parameter("run_id").value)
+        self.map_source = str(self.get_parameter("map_source").value)
         self.declare_parameter("target_host", "amdc")
+        self.declare_parameter("trace_subprocess_runs", True)
+        self._trace_subprocess = node_subprocess_trace(self)
         self.declare_parameter("wifi_interface", "")
         self.declare_parameter("cell_size", 0.25)
         self.declare_parameter("stationary_seconds", 3.0)
@@ -162,12 +183,13 @@ class WifiSurveyNode(Node):
         self.declare_parameter("revisit_interval", 300.0)
         self.declare_parameter("iperf_duration", 3)
         map_path = str(self.get_parameter("map_yaml_path").value)
-        if not map_path:
+        if self.map_source == "saved" and not map_path:
             raise ValueError("map_yaml_path is required")
 
         self.db_path = str(self.get_parameter("db_path").value)
         database = DatabaseManager(self.db_path)
-        self.map_id = database.register_map(load_map(map_path))
+        self.map_id = (database.register_map(load_map(map_path), self.run_id)
+                       if self.map_source == 'saved' else None)
         database.close()
         self.target_host = str(self.get_parameter("target_host").value)
         self.cell_size = float(self.get_parameter("cell_size").value)
@@ -182,7 +204,8 @@ class WifiSurveyNode(Node):
         )
         self.iperf_duration = int(self.get_parameter("iperf_duration").value)
         self.fetcher = WiFiDataFetcher(
-            str(self.get_parameter("wifi_interface").value)
+            str(self.get_parameter("wifi_interface").value),
+            trace=self._trace_subprocess,
         )
 
         self.tf_buffer = Buffer()
@@ -204,17 +227,18 @@ class WifiSurveyNode(Node):
         self.recovery_active = False
         self.positions: deque[Tuple[float, float, float]] = deque()
         self.last_survey: Dict[Tuple[int, int], float] = {}
-        self.executor = ThreadPoolExecutor(max_workers=1)
+        self._survey_pool = ThreadPoolExecutor(max_workers=1)
         self.future: Optional[Future] = None
         self.pending_cell: Optional[Tuple[int, int]] = None
         self.create_timer(0.5, self._tick)
+        self.create_timer(5.0, self._refresh_map_orientation)
         self.get_logger().info(
             f"Wi-Fi survey mode targets {self.target_host}; tests begin only "
             f"after {self.stationary_seconds:.1f}s stationary"
         )
 
     def destroy_node(self) -> None:
-        self.executor.shutdown(wait=True, cancel_futures=False)
+        self._survey_pool.shutdown(wait=True, cancel_futures=False)
         super().destroy_node()
 
     def _recovery_callback(self, message: Bool) -> None:
@@ -248,7 +272,30 @@ class WifiSurveyNode(Node):
             for _, x, y in self.positions
         )
 
+    def _refresh_map_orientation(self) -> None:
+        """Capture late sidecars when this node runs without a passive logger."""
+        database = None
+        try:
+            database = DatabaseManager(self.db_path)
+            if self.map_source == 'saved':
+                database.refresh_map_orientation(self.map_id)
+        except sqlite3.Error as error:
+            self.get_logger().warning(f"Could not refresh saved map orientation: {error}")
+        finally:
+            if database is not None:
+                database.close()
+
     def _tick(self) -> None:
+        if self.map_id is None:
+            database = DatabaseManager(self.db_path)
+            try:
+                current = database.run_map(self.run_id)
+                if current:
+                    self.map_id = current['id']
+            finally:
+                database.close()
+            if self.map_id is None:
+                return
         if self.future is not None and self.future.done():
             self._finish_survey()
         if self.recovery_active or self.future is not None:
@@ -268,11 +315,12 @@ class WifiSurveyNode(Node):
         except (OSError, RuntimeError, subprocess.SubprocessError):
             bssid = None
         self.pending_cell = cell
-        self.future = self.executor.submit(
+        self.future = self._survey_pool.submit(
             perform_survey,
             self.target_host,
             self.iperf_duration,
             bssid,
+            self._trace_subprocess,
         )
         self.get_logger().info(f"Surveying cell {cell} against {self.target_host}")
 
@@ -308,13 +356,7 @@ class WifiSurveyNode(Node):
 
 
 def main(args=None) -> None:
-    rclpy.init(args=args)
-    node = WifiSurveyNode()
-    try:
-        rclpy.spin(node)
-    finally:
-        node.destroy_node()
-        rclpy.shutdown()
+    run_node(WifiSurveyNode, args=args)
 
 
 if __name__ == "__main__":

@@ -12,20 +12,32 @@
 
   <depend>rclpy</depend>
   <depend>ament_index_python</depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
   <depend>geometry_msgs</depend>
   <depend>std_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>nav_msgs</depend>
   <depend>tf2_ros</depend>
   <depend>visualization_msgs</depend>
+  <exec_depend>rviz_2d_overlay_msgs</exec_depend>
   <depend>python3-matplotlib</depend>
   <depend>python3-numpy</depend>
-  <depend>python3-sqlite3</depend>
+  <!-- sqlite3 is part of the Python standard library. -->
+  <exec_depend>python3</exec_depend>
   <depend>python3-yaml</depend>
+  <exec_depend>iw</exec_depend>
+  <exec_depend>iputils-ping</exec_depend>
+  <!-- Active surveys also require the iperf3 executable. It has no standard
+       rosdep key; see the manual installation step in README.md. -->
 
+  <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_cmake_pytest</test_depend>
   <test_depend>ament_flake8</test_depend>
   <test_depend>ament_pep257</test_depend>
   <test_depend>python3-pytest</test_depend>
+  <test_depend>rosgraph_msgs</test_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

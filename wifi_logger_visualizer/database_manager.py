@@ -1,7 +1,11 @@
 from datetime import datetime, timezone
 from pathlib import Path
 import sqlite3
+import yaml
 from typing import Any, Dict, Iterable, Optional
+
+from wifi_logger_visualizer.gps_data import GPS_COLUMNS
+from wifi_logger_visualizer.orientation_data import read_orientation_snapshot, _validated_orientation
 
 
 PASSIVE_FIELDS = (
@@ -20,8 +24,14 @@ def utc_now() -> str:
 class DatabaseManager:
     """Own the current, map-specific Wi-Fi estimate database."""
 
-    def __init__(self, db_path: str):
+    def __init__(self, db_path: str, *, read_only: bool = False):
         self.db_path = str(Path(db_path).expanduser().resolve())
+        if read_only:
+            self.conn = sqlite3.connect(
+                Path(self.db_path).as_uri() + "?mode=ro", uri=True, timeout=2.0
+            )
+            self.conn.row_factory = sqlite3.Row
+            return
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(self.db_path, timeout=10.0)
         self.conn.row_factory = sqlite3.Row
@@ -35,9 +45,21 @@ class DatabaseManager:
     def _setup_database(self) -> None:
         self.conn.executescript(
             """
+            CREATE TABLE IF NOT EXISTS collection_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                started_at TEXT NOT NULL,
+                map_source TEXT NOT NULL,
+                wifi_source TEXT NOT NULL,
+                cell_size REAL NOT NULL DEFAULT 0.25 CHECK (cell_size > 0),
+                temporary INTEGER NOT NULL CHECK (temporary IN (0,1))
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS one_temporary_run
+                ON collection_runs(temporary) WHERE temporary=1;
             CREATE TABLE IF NOT EXISTS maps (
-                id INTEGER PRIMARY KEY,
-                content_hash TEXT NOT NULL UNIQUE,
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id INTEGER NOT NULL REFERENCES collection_runs(id) ON DELETE CASCADE,
+                revision INTEGER NOT NULL DEFAULT 1,
+                content_hash TEXT NOT NULL,
                 captured_at TEXT NOT NULL,
                 source_yaml_path TEXT NOT NULL,
                 yaml_text TEXT NOT NULL,
@@ -51,11 +73,19 @@ class DatabaseManager:
                 height INTEGER NOT NULL,
                 negate INTEGER NOT NULL,
                 occupied_thresh REAL NOT NULL,
-                free_thresh REAL NOT NULL
+                free_thresh REAL NOT NULL,
+                orientation_yaml TEXT,
+                orientation_captured_at TEXT,
+                orientation_valid INTEGER CHECK (orientation_valid IN (0, 1)),
+                orientation_reason TEXT,
+                map_x_heading_from_east_deg REAL,
+                orientation_uncertainty_deg REAL,
+                orientation_saved_at TEXT,
+                UNIQUE(run_id, content_hash)
             );
 
             CREATE TABLE IF NOT EXISTS wifi_cells (
-                map_id INTEGER NOT NULL REFERENCES maps(id),
+                map_id INTEGER NOT NULL REFERENCES maps(id) ON DELETE CASCADE,
                 cell_x INTEGER NOT NULL,
                 cell_y INTEGER NOT NULL,
                 center_x REAL NOT NULL,
@@ -69,6 +99,15 @@ class DatabaseManager:
                 ssid TEXT,
                 bssid TEXT,
                 frequency_mhz REAL,
+                latitude REAL,
+                longitude REAL,
+                altitude REAL,
+                gps_stamp_ns INTEGER,
+                gps_frame_id TEXT,
+                gps_status INTEGER,
+                gps_service INTEGER,
+                gps_covariance TEXT,
+                gps_covariance_type INTEGER,
                 signal_dbm_min REAL,
                 signal_dbm_max REAL,
                 signal_dbm_last REAL,
@@ -88,7 +127,7 @@ class DatabaseManager:
             );
 
             CREATE TABLE IF NOT EXISTS wifi_surveys (
-                map_id INTEGER NOT NULL REFERENCES maps(id),
+                map_id INTEGER NOT NULL REFERENCES maps(id) ON DELETE CASCADE,
                 cell_x INTEGER NOT NULL,
                 cell_y INTEGER NOT NULL,
                 measured_at TEXT NOT NULL,
@@ -116,23 +155,102 @@ class DatabaseManager:
         )
         self.conn.commit()
 
-    def register_map(self, map_data: Dict[str, Any]) -> int:
+    def start_run(self, map_source="saved", wifi_source="hardware", temporary=None, cell_size=.25) -> int:
+        """Clean the previous disposable run exactly once, at suite startup."""
+        if map_source not in ("saved", "live") or wifi_source not in ("hardware", "simulated", "topic"):
+            raise ValueError("Invalid map_source or wifi_source")
+        if temporary is None:
+            temporary = map_source == "live" or wifi_source == "simulated"
+        with self.conn:
+            self.conn.execute("DELETE FROM collection_runs WHERE temporary=1")
+            cursor = self.conn.execute(
+                "INSERT INTO collection_runs(started_at,map_source,wifi_source,temporary,cell_size) VALUES(?,?,?,?,?)",
+                (utc_now(), map_source, wifi_source, int(temporary), cell_size),
+            )
+        return int(cursor.lastrowid)
+
+    def keep_run(self, run_id: int) -> bool:
+        with self.conn:
+            cursor = self.conn.execute("UPDATE collection_runs SET temporary=0 WHERE id=?", (run_id,))
+        return cursor.rowcount == 1
+
+    def get_run(self, run_id: int):
+        row = self.conn.execute("SELECT * FROM collection_runs WHERE id=?", (run_id,)).fetchone()
+        return dict(row) if row else None
+
+    def run_map(self, run_id: int):
+        row = self.conn.execute("SELECT * FROM maps WHERE run_id=? ORDER BY id DESC LIMIT 1", (run_id,)).fetchone()
+        return dict(row) if row else None
+
+    def update_live_map(self, run_id: int, map_data, orientation_document=None) -> int:
+        """Replace one session raster atomically without moving stored cells."""
+        run = self.get_run(run_id)
+        if not run or run['map_source'] != 'live':
+            raise ValueError("Live updates require a live-map run")
+        current = self.run_map(run_id)
+        if current is None:
+            map_id = self.register_map(map_data, run_id)
+            if orientation_document is not None:
+                with self.conn:
+                    self._write_orientation_document(map_id, map_data, orientation_document)
+            return map_id
+        if current['content_hash'] == map_data['content_hash']:
+            if orientation_document is not None:
+                with self.conn:
+                    self._write_orientation_document(current['id'], map_data, orientation_document)
+            return current['id']
+        fields = ('content_hash', 'yaml_text', 'image_name', 'image_data', 'resolution',
+                  'origin_x', 'origin_y', 'origin_yaw', 'width', 'height', 'negate',
+                  'occupied_thresh', 'free_thresh')
+        with self.conn:
+            self.conn.execute(
+                'UPDATE maps SET ' + ','.join(f'{key}=?' for key in fields) +
+                ',revision=revision+1,orientation_yaml=NULL,orientation_valid=NULL,'
+                'orientation_captured_at=NULL,orientation_reason=NULL,'
+                'map_x_heading_from_east_deg=NULL,orientation_uncertainty_deg=NULL,'
+                'orientation_saved_at=NULL WHERE id=?',
+                (*[map_data[key] for key in fields], current['id']),
+            )
+            if orientation_document is not None:
+                self._write_orientation_document(current['id'], map_data, orientation_document)
+        return current['id']
+
+    def _write_orientation_document(self, map_id, map_data, document):
+        """Write all normalized fields and full metadata in the caller transaction."""
+        summary = _validated_orientation(document, map_data)
+        self.conn.execute(
+            """UPDATE maps SET orientation_yaml=?,orientation_captured_at=?,orientation_valid=?,
+               orientation_reason=?,map_x_heading_from_east_deg=?,orientation_uncertainty_deg=?,
+               orientation_saved_at=? WHERE id=?""",
+            (yaml.safe_dump(document, sort_keys=False), utc_now(), int(summary['valid']),
+             summary.get('reason', ''), summary.get('map_x_heading_from_east_deg'),
+             summary.get('uncertainty_deg'), document.get('saved_at'), map_id),
+        )
+
+    def register_map(self, map_data: Dict[str, Any], run_id: int = 0) -> int:
+        if not run_id:
+            # Direct node use joins a persistent standalone run; suite launches
+            # always supply a freshly coordinated run ID.
+            self.conn.execute("INSERT OR IGNORE INTO collection_runs(id,started_at,map_source,wifi_source,temporary) VALUES (0, ?, 'saved', 'hardware', 0)", (utc_now(),))
+            self.conn.commit()
         existing = self.conn.execute(
-            "SELECT id FROM maps WHERE content_hash = ?",
-            (map_data["content_hash"],),
+            "SELECT id FROM maps WHERE run_id=? AND content_hash = ?",
+            (run_id, map_data["content_hash"]),
         ).fetchone()
         if existing:
+            self.refresh_map_orientation(int(existing["id"]), map_data)
             return int(existing["id"])
 
-        cursor = self.conn.execute(
+        self.conn.execute(
             """
-            INSERT INTO maps (
-                content_hash, captured_at, source_yaml_path, yaml_text,
+            INSERT OR IGNORE INTO maps (
+                run_id, content_hash, captured_at, source_yaml_path, yaml_text,
                 image_name, image_data, resolution, origin_x, origin_y,
                 origin_yaw, width, height, negate, occupied_thresh, free_thresh
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
+                run_id,
                 map_data["content_hash"],
                 utc_now(),
                 map_data["source_yaml_path"],
@@ -151,7 +269,40 @@ class DatabaseManager:
             ),
         )
         self.conn.commit()
-        return int(cursor.lastrowid)
+        # Multiple collection nodes may register the same saved snapshot at
+        # startup; resolve the shared row even when another writer inserted it.
+        map_id = int(self.conn.execute(
+            'SELECT id FROM maps WHERE run_id=? AND content_hash=?',
+            (run_id, map_data['content_hash']),
+        ).fetchone()['id'])
+        self.refresh_map_orientation(map_id, map_data)
+        return map_id
+
+    def refresh_map_orientation(self, map_id: int, map_data=None) -> None:
+        """Atomically capture sidecar text and validated display fields.
+
+        Repeated checks avoid writes when unchanged. Missing or mismatched files
+        preserve the last captured snapshot; an invalid replacement cannot erase
+        an already validated orientation.
+        """
+        stored = self.get_map(map_id)
+        if stored is None:
+            return
+        snapshot = read_orientation_snapshot(map_data or stored)
+        if snapshot is None:
+            return
+        raw, result, saved_at = snapshot
+        if raw == stored['orientation_yaml'] or (stored['orientation_valid'] == 1 and not result['valid']):
+            return
+        with self.conn:
+            self.conn.execute(
+                """UPDATE maps SET orientation_yaml=?, orientation_captured_at=?,
+                   orientation_valid=?, orientation_reason=?, map_x_heading_from_east_deg=?,
+                   orientation_uncertainty_deg=?, orientation_saved_at=? WHERE id=?""",
+                (raw, utc_now(), int(result['valid']), result.get('reason', ''),
+                 result.get('map_x_heading_from_east_deg'), result.get('uncertainty_deg'),
+                 saved_at, map_id),
+            )
 
     def get_map(self, map_id: int) -> Optional[Dict[str, Any]]:
         row = self.conn.execute(
@@ -168,9 +319,11 @@ class DatabaseManager:
     def list_maps(self) -> list[Dict[str, Any]]:
         rows = self.conn.execute(
             """
-            SELECT id, content_hash, captured_at, source_yaml_path,
-                   resolution, width, height
-            FROM maps ORDER BY captured_at DESC, id DESC
+            SELECT m.id, m.run_id, m.revision, m.content_hash, m.captured_at, m.source_yaml_path,
+                   m.orientation_saved_at, m.resolution, m.width, m.height, r.temporary,
+                   r.map_source, r.wifi_source
+            FROM maps m JOIN collection_runs r ON r.id=m.run_id
+            ORDER BY m.captured_at DESC, m.id DESC
             """
         ).fetchall()
         return [dict(row) for row in rows]
@@ -223,6 +376,10 @@ class DatabaseManager:
             present = [value for value in (previous_max, current) if value is not None]
             values[f"{field}_max"] = max(present) if present else None
             values[f"{field}_last"] = current
+
+        # GPS describes the latest observation, not the whole visit window.
+        # Explicit NULLs prevent a stale/disabled fix surviving a new sample.
+        values.update({name: sample.get(name) for name in GPS_COLUMNS})
 
         columns = list(values)
         placeholders = ", ".join(f":{column}" for column in columns)

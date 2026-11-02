@@ -1,3 +1,5 @@
+from wifi_logger_visualizer.subprocess_trace import trace_command
+
 from pathlib import Path
 import re
 import subprocess
@@ -39,13 +41,14 @@ def parse_iw_station(output: str) -> Dict[str, Any]:
 class WiFiDataFetcher:
     """Read association and radio counters from Linux nl80211 via iw."""
 
-    def __init__(self, wifi_interface: str = ""):
-        self.wifi_interface = wifi_interface or self.detect_interface()
+    def __init__(self, wifi_interface: str = "", trace=None):
+        self.trace = trace
+        self.wifi_interface = wifi_interface or self.detect_interface(trace)
 
     @staticmethod
-    def detect_interface() -> str:
+    def detect_interface(trace=None) -> str:
         result = subprocess.run(
-            ["iw", "dev"],
+            trace_command(["iw", "dev"], trace),
             check=True,
             capture_output=True,
             text=True,
@@ -61,7 +64,7 @@ class WiFiDataFetcher:
 
     def get_wifi_data(self) -> Dict[str, Any]:
         link = subprocess.run(
-            ["iw", "dev", self.wifi_interface, "link"],
+            trace_command(["iw", "dev", self.wifi_interface, "link"], self.trace),
             check=True,
             capture_output=True,
             text=True,
@@ -72,7 +75,7 @@ class WiFiDataFetcher:
             return sample
 
         station = subprocess.run(
-            ["iw", "dev", self.wifi_interface, "station", "dump"],
+            trace_command(["iw", "dev", self.wifi_interface, "station", "dump"], self.trace),
             check=True,
             capture_output=True,
             text=True,

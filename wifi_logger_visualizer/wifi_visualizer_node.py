@@ -5,8 +5,8 @@ import hashlib
 from typing import Any, Dict, Optional, Tuple
 
 from geometry_msgs.msg import Point
-import rclpy
 from rclpy.node import Node
+from wifi_logger_visualizer.ros_runtime import run_node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import ColorRGBA
 from visualization_msgs.msg import Marker, MarkerArray
@@ -36,6 +36,9 @@ class WifiVisualizerNode(Node):
         self.declare_parameter("db_path", "~/.ros/titania_wifi.db")
         self.declare_parameter("map_yaml_path", "")
         self.declare_parameter("map_id", 0)
+        self.declare_parameter("map_source", "saved")
+        self.declare_parameter("run_id", 0)
+        self.run_id = int(self.get_parameter("run_id").value)
         self.declare_parameter("metric", "signal")
         self.declare_parameter("cell_size", 0.25)
         self.declare_parameter("publish_frequency", 1.0)
@@ -47,17 +50,21 @@ class WifiVisualizerNode(Node):
         self.database = DatabaseManager(str(self.get_parameter("db_path").value))
         requested_map = int(self.get_parameter("map_id").value)
         map_path = str(self.get_parameter("map_yaml_path").value)
-        if requested_map:
+        if self.run_id:
+            map_data = self.database.run_map(self.run_id)
+            if map_data is None and map_path and self.get_parameter('map_source').value == 'saved':
+                map_data = self.database.get_map(self.database.register_map(load_map(map_path), self.run_id))
+        elif requested_map:
             map_data = self.database.get_map(requested_map)
         elif map_path:
             map_id = self.database.register_map(load_map(map_path))
             map_data = self.database.get_map(map_id)
         else:
             map_data = self.database.latest_map()
-        if map_data is None:
+        if map_data is None and not self.run_id:
             raise RuntimeError("The Wi-Fi database contains no captured map")
         self.map_data = map_data
-        self.map_id = int(map_data["id"])
+        self.map_id = int(map_data["id"]) if map_data else None
         self.cell_size = float(self.get_parameter("cell_size").value)
         metric = str(self.get_parameter("metric").value)
         if metric not in METRICS:
@@ -196,6 +203,11 @@ class WifiVisualizerNode(Node):
         return marker
 
     def publish(self) -> None:
+        if self.run_id:
+            self.map_data = self.database.run_map(self.run_id)
+            if self.map_data is None:
+                return
+            self.map_id = self.map_data['id']
         rows = self._metric_rows()
         measured_marker = self._cube_list(0, f"wifi_{self.metric}")
         measured = set()
@@ -227,13 +239,7 @@ class WifiVisualizerNode(Node):
 
 
 def main(args=None) -> None:
-    rclpy.init(args=args)
-    node = WifiVisualizerNode()
-    try:
-        rclpy.spin(node)
-    finally:
-        node.destroy_node()
-        rclpy.shutdown()
+    run_node(WifiVisualizerNode, args=args)
 
 
 if __name__ == "__main__":
