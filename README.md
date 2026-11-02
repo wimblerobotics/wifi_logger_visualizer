@@ -1,8 +1,133 @@
-# Wi-Fi Logger and Visualizer for ROS 2
+> **Note:** This repository is a fork of the original code by Michael Wimble ([wimblerobotics/wifi_logger_visualizer](https://github.com/wimblerobotics/wifi_logger_visualizer)), to whom all credit goes.
+>
+> This fork has since diverged to meet different goals. See https://github.com/wimblerobotics/wifi_logger_visualizer/pull/4 for details.
+> 
+> For detailed information about WiFi benchmarking, testing, and setup, check out the documentation [here](https://github.com/slgrobotics/robots_bringup/blob/main/Docs/Sensors/WiFi_Logger_Visualizer.md).
 
-This package maintains a current, map-associated estimate of Wi-Fi coverage for
-a mobile robot. It deliberately keeps passive monitoring lightweight and runs
-traffic-generating performance tests only in explicit survey mode.
+----------
+
+# Wi-Fi Logger and Visualizer
+
+A ROS 2 package for collecting map-based Wi-Fi coverage and network performance
+data, with RViz visualization and a browser-based viewer.
+
+Targets **Ubuntu 26.04** and **ROS 2 Lyrical**. Familiarity with ROS 2 workspaces,
+launch files, parameters, and coordinate frames is assumed.
+
+## Overview
+
+The package includes five ROS nodes and a standalone web server:
+
+| Component | Purpose |
+|---|---|
+| `wifi_logger_node.py` | Collects passive Wi-Fi measurements at the robot's map-frame position and stores them in SQLite. |
+| `survey_node.py` | Measures upload/download throughput, latency, jitter, and packet loss while the robot is stationary. |
+| `wifi_visualizer_node.py` | Publishes colored cell markers for RViz, with optional highlighting of unmeasured free space. |
+| `wifi_overlay_node.py` | Publishes a text overlay showing Wi-Fi status in RViz. |
+| `survey_sim_node.py` | Generates repeatable synthetic passive Wi-Fi measurements from the simulated robot's position. |
+| `web_viewer.py` | Serves an interactive coverage map for live viewing and post-run analysis. |
+
+The visualizer publishes markers rather than navigation costmaps. There is no
+separate Heat Mapper node; visualization uses measured cells without spatial
+interpolation.
+
+## Features
+
+- Passive collection of signal strength in dBm, SSID, BSSID, frequency, TX/RX
+  link rates, and transmit retry/failure counters.
+- Configurable map-frame cells, with minimum, maximum, and latest measurements
+  from each cell's most recent visit.
+- Optional stationary network surveys using `ping` and `iperf3`.
+- Optional GPS coordinates, altitude, fix status, service, and covariance metadata.
+- Saved-map snapshots or live occupancy grids from a growing SLAM map.
+- Hardware, simulated, or externally published Wi-Fi measurements.
+- SQLite storage of map images, geometry, measurements, and orientation metadata
+  for analysis without the original map files.
+- Temporary runs that can be promoted for retention; the next collection startup
+  removes the previous unpromoted temporary run.
+- Browser zoom/pan, cell details, selectable layers, fixed or Min/Max color scales,
+  local timestamps, and a true-North compass when orientation is available.
+- PNG coverage exports and ZIP exports containing a navigation map's PGM, YAML,
+  and orientation sidecar.
+- Automatic read-only web viewing during collection and optional writable
+  post-run analysis with a **Promote** action.
+- Nonblocking saved-map readiness checks, measurement/pose freshness checks,
+  localization-recovery gating, subprocess diagnostics, and clean shutdown.
+
+## Dependencies
+
+The ROS, Python, build, and test dependencies are declared in `package.xml` and
+installed through `rosdep`:
+
+- ROS: `rclpy`, `tf2_ros`, `ament_index_python`, `launch`, `launch_ros`,
+  `geometry_msgs`, `std_msgs`, `sensor_msgs`, `nav_msgs`, `visualization_msgs`,
+  and `rviz_2d_overlay_msgs`.
+- Python: NumPy, Matplotlib, and PyYAML. SQLite support is part of Python's
+  standard library; the `sqlite3` command-line tool is optional.
+- Hardware/network tools: `iw` and `iputils-ping`.
+- Build/test tools: ament CMake/Python support, pytest, ament lint tools, and
+  `rosgraph_msgs` for simulation tests.
+
+**Install `iperf3` separately for active surveys.** The standard rosdep database
+has no `iperf3` key; the `iperf` package provides the incompatible iperf2 tool.
+Simulation and browser-only operation do not execute `iw`, `ping`, or `iperf3`.
+
+Optional components include RViz 2 for marker displays,
+`rviz_2d_overlay_plugins` for text overlays, and a geographic orientation
+estimator such as `map_orientation_saver`. GPS requires a NavSatFix publisher;
+robot localization must provide the configured map-to-robot TF transform.
+Joystick nodes belong to the robot's control stack and are not required by this
+package.
+
+## Installation
+
+Install and source ROS 2 Lyrical first. For a robot/workstation setup, install the
+package on the robot for collection. A workstation can run RViz and access the
+robot's viewer at `http://<robot-IP>:8088/` without running another viewer.
+To analyze a copied database locally, install the package on the workstation too.
+The database is written on whichever computer runs the collector.
+
+1. Clone the repository into your ROS 2 workspace:
+
+   ```bash
+   mkdir -p ~/robot_ws/src
+   cd ~/robot_ws/src
+   git clone https://github.com/slgrobotics/wifi_logger_visualizer.git
+   ```
+
+2. Install dependencies. Initialize rosdep only if it has not already been
+   initialized on this computer:
+
+   ```bash
+   source /opt/ros/lyrical/setup.bash
+   cd ~/robot_ws
+   sudo rosdep init  # First-time rosdep setup only.
+   rosdep update
+   rosdep install --from-paths src --ignore-src --rosdistro "$ROS_DISTRO" -y
+   sudo apt install iperf3  # Required for active surveys.
+   ```
+
+3. Build the package:
+
+   ```bash
+   cd ~/robot_ws
+   colcon build --packages-select wifi_logger_visualizer
+   ```
+
+4. Source the workspace in each terminal where you use the package:
+
+   ```bash
+   source ~/robot_ws/install/setup.bash
+   ```
+
+The combined launch starts the viewer on port 8088 by default. See the sections
+below for saved-map, live-map, simulation, and post-run analysis examples.
+
+----------------------------------------------------
+
+Original README follows, amended with new features description
+
+----------------------------------------------------
 
 ## Architecture change — 2026-10-24
 
@@ -367,13 +492,6 @@ ros2 run wifi_logger_visualizer web_viewer.py \
 ```
 
 The snapshot can be opened by the same viewer on another computer.
-
-## Dependencies
-
-```bash
-sudo apt install iw iperf3 python3-matplotlib python3-numpy python3-yaml
-rosdep install --from-paths src --ignore-src -r -y
-```
 
 ## Future work
 
