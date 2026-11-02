@@ -1,8 +1,8 @@
 > **Note:** This repository is a fork of the original code by Michael Wimble ([wimblerobotics/wifi_logger_visualizer](https://github.com/wimblerobotics/wifi_logger_visualizer)), to whom all credit goes.
 >
-> This fork has since diverged to meet different goals. See https://github.com/wimblerobotics/wifi_logger_visualizer/pull/4 for details.
-> 
-> For detailed information about WiFi benchmarking, testing, and setup, check out the documentation [here](https://github.com/slgrobotics/robots_bringup/blob/main/Docs/Sensors/WiFi_Logger_Visualizer.md).
+> This fork has since diverged to meet different goals. See [this pull request](https://github.com/wimblerobotics/wifi_logger_visualizer/pull/4) for details.
+>
+> For detailed information about Wi-Fi benchmarking, testing, and setup, see my [benchmarking notes](https://github.com/slgrobotics/robots_bringup/blob/main/Docs/Sensors/WiFi_Logger_Visualizer.md).
 
 ----------
 
@@ -11,8 +11,8 @@
 A ROS 2 package for collecting map-based Wi-Fi coverage and network performance
 data, with RViz visualization and a browser-based viewer.
 
-Targets **Ubuntu 26.04** and **ROS 2 Lyrical**. Familiarity with ROS 2 workspaces,
-launch files, parameters, and coordinate frames is assumed.
+This package targets **Ubuntu 26.04** and **ROS 2 Lyrical**. Familiarity with
+ROS 2 workspaces, launch files, parameters, and coordinate frames is assumed.
 
 ## Overview
 
@@ -27,9 +27,9 @@ The package includes five ROS nodes and a standalone web server:
 | `survey_sim_node.py` | Generates repeatable synthetic passive Wi-Fi measurements from the simulated robot's position. |
 | `web_viewer.py` | Serves an interactive coverage map for live viewing and post-run analysis. |
 
-The visualizer publishes markers rather than navigation costmaps. There is no
-separate Heat Mapper node; visualization uses measured cells without spatial
-interpolation.
+**Note:** Unlike the [V1 version](https://github.com/slgrobotics/wifi_logger_visualizer/blob/main_v1/README.md),
+the V2 visualizer publishes markers rather than navigation costmaps. There is no
+separate Heat Mapper node; visualization uses measured cells without spatial interpolation.
 
 ## Features
 
@@ -125,7 +125,7 @@ below for saved-map, live-map, simulation, and post-run analysis examples.
 
 ----------------------------------------------------
 
-Original README follows, amended with new features description
+The original README follows, updated to describe the new features.
 
 ----------------------------------------------------
 
@@ -142,18 +142,19 @@ normal robot traffic, and visually imply coverage between measured locations.
 Version 2 replaces that architecture:
 
 - The map YAML and image contents define a map identity and are stored in the
-  database. Changing either starts a distinct coverage map.
+  database. For saved maps, changing either creates a distinct coverage map
+  within the run; live maps update the existing snapshot.
 - Passive observations use `iw`, include BSSID/frequency/link rates, and update
-  25 cm cells only while the `map -> base_link` pose is fresh and localization
-  recovery is inactive.
+  cells (25 cm by default) only while the `map -> base_link` pose is fresh and
+  localization recovery is inactive.
 - Each cell keeps min/max/last values for its newest visit; a revisit replaces
   the old window instead of extending a lifetime average.
-- Active iperf and latency tests run only in explicit survey mode after the
+- Active iperf3 and latency tests run only in explicit survey mode after the
   robot is stationary.
 - RViz and the browser render measured cells without interpolation. Unknown
   free space can be highlighted explicitly rather than filled with estimated
   values.
-- The browser uses the captured house map, exports PNGs, and can open a safe
+- The browser uses the captured map, exports PNGs, and can open a consistent
   SQLite backup made while collection continues.
 - The obsolete standalone heat-mapper and its duplicated aggregation path were
   removed. Passive collection, survey results, RViz, and the browser now share
@@ -178,15 +179,15 @@ nodes. Source choices are launch arguments, not YAML switches:
 
 `auto` marks simulation or live-map runs temporary; other runs are retained.
 At the **next collection startup**, the previous temporary run and all its maps,
-cells, surveys and orientation metadata are deleted in one transaction. Shutdown,
-opening the viewer and refreshing never delete data. There is one temporary run
+cells, surveys, and orientation metadata are deleted in one transaction. Shutdown,
+opening the viewer, and refreshing never delete data. There is one temporary run
 per database; run only one collection suite against it at a time.
 
 During simulation and hardware collection, the suite starts a read-only viewer
 at port 8088 by default (`web_viewer:=false` disables it). It never writes to the
 database and has no Promote action. Temporary map choices are labeled `[temporary]`.
 After stopping collection, launch the viewer with `analysis:=true` to open the
-database read/write. **Promote** retains the selected map's entire run, including
+database in read/write mode. **Promote** retains the selected map's entire run, including
 accumulated measurements and map snapshots; it persists immediately and is safe to retry.
 
 ```bash
@@ -196,7 +197,7 @@ ros2 launch wifi_logger_visualizer web_viewer.launch.py \
 
 For the Python executable directly, use `--analysis` instead of `analysis:=true`.
 Stop the automatic viewer first, or choose another port for analysis. Each
-run also records its cell size, which the viewer uses for analysis.
+run records its cell size, which the viewer uses for analysis.
 
 A fresh SLAM simulation can collect without saving any map files:
 
@@ -215,19 +216,20 @@ In `articubot_one`, Seggy and Dragger pass these choices directly. Their
 `use_sim_time:=true` defaults select simulated Wi-Fi, live maps, and disable
 active surveys. Hardware defaults select hardware Wi-Fi and saved maps. Override
 with `wifi_source`, `wifi_map_source`, `wifi_map_topic`, `wifi_temporary_run`,
-`wifi_sim_seed`, and `wifi_active_survey`. The suite starts the web viewer read-only by default.
+`wifi_sim_seed`, and `wifi_active_survey`. The suite starts the web viewer in
+read-only mode by default.
 
 Live collection waits for its first valid occupancy grid and updates one map
 row at most every two seconds (`map_update_interval` on the logger). Raster,
-geometry and revision change atomically; Wi-Fi cells retain map-frame positions.
-Only full occupancy grids with an axis-aligned origin in the configured map frame
-are accepted. Loop closures do not retrospectively relocate old measurements.
+geometry, and revision change atomically; Wi-Fi cells retain map-frame positions.
+Only full occupancy grids in the configured map frame with an axis-aligned
+origin are accepted. Loop closures do not retrospectively relocate old measurements.
 Live snapshots subscribe to `localization/map_orientation` and capture validated
 true-North estimates with their full diagnostics. Missing, invalid, wrong-frame,
-future or stale estimates are recorded as unavailable. `orientation_topic` and
+future, or stale estimates are recorded as unavailable. `orientation_topic` and
 `orientation_max_age` (default 2 seconds) are logger parameters. Saved-map
-sidecars are not imported into live runs. The initial
-simulator position is captured independently of saved-map readiness.
+sidecars are not imported into live runs. The initial simulator position is
+captured independently of saved-map readiness.
 
 `survey_sim_node.py` simulates **passive Wi-Fi only**, with one access point
 anchored to the first fresh map-frame robot pose plus optional `ap_offset_x/y`.
@@ -235,7 +237,7 @@ It models distance-based signal strength, link rates, counters and disconnection
 noise defaults to zero. Its ROS parameters include `reference_signal_dbm`,
 `path_loss_exponent`, `noise_stddev`, `disconnect_dbm`, `max_rate_mbps`, `ssid`,
 `bssid`, `frequency_mhz`, `seed` and `publish_frequency`. A backward clock jump
-resets the anchor and counters. It publishes no TF/GPS and writes no database.
+resets the anchor and counters. It publishes neither TF nor GPS and does not write to the database.
 Optional GPS continues to use the existing `use_gps` and NavSatFix path.
 
 The measurement interface uses `std_msgs/String` containing validated JSON:
@@ -249,9 +251,9 @@ are rejected for simulated/topic input; they remain available for hardware input
 
 ## Data model
 
-- Within a collection run, saved maps are identified by a SHA-256 digest of both the map YAML and image
-  contents. The YAML and image are stored in SQLite, so an offline snapshot can
-  reproduce the background map.
+- Within a collection run, saved maps are identified by a SHA-256 digest of
+  both the map YAML and image contents. The YAML and image are stored in SQLite,
+  so an offline snapshot can reproduce the background map.
 - Observations use 25 cm cells by default.
 - Passive values retain minimum, maximum, and last values from the latest visit
   to a cell. A later visit replaces the previous visit rather than producing a
@@ -276,16 +278,17 @@ The logger uses `iw`, not deprecated `iwconfig`, to capture:
 It looks up `map -> base_link` directly and stops recording while
 `/localization/recovery_active` is true or the transform is stale.
 
-The V2 suite launch waits normally if its configured saved map does not exist
+In saved-map mode, the V2 suite waits if its configured map does not exist
 yet. It checks the YAML and complete PGM image every five seconds without
 blocking localization or mapping. Once both are readable, enabled Wi-Fi
 services start automatically; no launch restart is needed. Override the interval
 with `map_check_interval:=2.0`. A map filename must still be configured so the
 suite knows which save to wait for. An orientation sidecar is optional.
 
-This is an initial startup gate, not continuous map switching: later map changes
-require restarting the suite. Raw node executables expect a readable map when
-started directly; the suite launch handles the waiting for them.
+In saved-map mode, this is an initial startup gate, not continuous map
+switching: later map changes require restarting the suite. Raw node executables
+expect a readable saved map when started directly; the suite launch handles
+the wait. Live-map mode instead captures occupancy-grid updates during collection.
 
 ```bash
 ros2 launch wifi_logger_visualizer wifi_logger_visualizer.launch.py \
@@ -296,7 +299,7 @@ ros2 launch wifi_logger_visualizer wifi_logger_visualizer.launch.py \
 ## Optional GPS metadata
 
 Set `use_gps` in the shared `/**` YAML parameters so collection and the browser
-viewer use the same setting (default false):
+viewer use the same setting (default: `false`):
 
 ```yaml
 /**:
@@ -308,7 +311,7 @@ viewer use the same setting (default false):
     gps_max_age: 2.0
 ```
 
-GPS defaults to disabled, with no `NavSatFix` subscription. When enabled,
+GPS is disabled by default, with no `NavSatFix` subscription. When enabled,
 the passive logger associates the latest valid fix with each Wi-Fi observation.
 The viewer shows GPS details on the Position/Cell line only when enabled.
 For direct CLI use, pass `--use-gps`; the standalone viewer launch also accepts
@@ -333,8 +336,7 @@ collection. Map localization is still required; GPS does not define cell
 geometry or replace TF. Cell keys remain two-dimensional. Missing databases
 are created with the GPS columns; existing schemas are not migrated. Recreate
 an older database to use GPS collection. Survey results retain their own
-timestamps and do not claim a separately measured GPS fix. GPS rendering and
-V1 database import are outside this change.
+timestamps and do not claim a separately measured GPS fix. V1 database import is not supported.
 
 ## Explicit surveys
 
@@ -396,7 +398,7 @@ ssh -L 8088:127.0.0.1:8088 titania
 ```
 
 Then open <http://127.0.0.1:8088>. The browser supports map/layer selection,
-unmeasured highlighting, cell inspection, live refresh, and a color key to the
+unmeasured highlighting, cell inspection, manual refresh, and a color key to the
 right of the map. **Min/Max** (unchecked by default) stretches numeric colors
 and legend limits to the selected map's displayed measurements. It uses each
 cell's latest value for signal/link rates, rather than historical extrema.
@@ -413,47 +415,58 @@ Optionally, launch the standalone viewer with:
 ros2 launch wifi_logger_visualizer web_viewer.launch.py db:=/path/to/wifi_data_v2.db
 ```
 
-It binds to `0.0.0.0:8088` by default, no need to forward it via ssh.
-Optional launch arguments are `host`, `port`, `cell_size`, and `node_names` (access-point names YAML).
+The standalone launch binds to `0.0.0.0:8088` by default, so SSH forwarding is
+not required when the workstation can reach the robot directly.
+Optional launch arguments include `host`, `port`, `cell_size`, `use_gps`,
+`analysis`, and `node_names` (the access-point names YAML file).
 
 The standalone viewer reads `config/wifi_logger_config.yaml` by default.
 Select another robot config with `config_filepath:=/path/to/config.yaml`.
-It reads `db_path` and `cell_size` from the common `/**` parameters, and `host`, `port`,
-and optional `node_names` from `/**/wifi_web_viewer`.
+It reads `db_path` and the fallback `cell_size` from the common `/**` parameters,
+and `host`, `port`, and optional `node_names` from `/**/wifi_web_viewer`.
 Explicit launch arguments (`db`, `host`, `port`, `cell_size`, `node_names`) override the YAML settings.
 
 ### Save standard map files from the database
 
 Enter a **Map name** (a basename without extension, using letters, digits,
-underscores or hyphens) and select **Export ZIP**. The browser downloads
+underscores, or hyphens) and select **Export ZIP**. The browser downloads
 `<name>.zip` containing `<name>.pgm`, `<name>.yaml`, and
 `<name>.orientation.yaml`. Extract the ZIP, then give the map YAML to Nav2's map
-server/AMCL, or to this suite's saved-map mode. This is separate from **Export
+server and AMCL, or to this suite's saved-map mode. This is separate from **Export
 PNG**, which produces a coverage visualization rather than a navigation map.
 
 Saving works in both read-only and analysis modes. It neither writes to the
-database nor promotes the run, and does not require the original map files or
+database nor promotes the run. It does not require the original map files or
 ROS to be running. Live runs export standard trinary maps. The sidecar is bound
 to the actual exported YAML/PGM hash; it preserves captured estimator timestamps
 and includes export/source provenance. If orientation was unavailable, the
 sidecar explicitly records an invalid estimate and reason. Captured orientation
 is not expired merely because the completed run is old.
 
-### Saved map orientation
+### Map orientation
 
-The browser displays a true-North compass and the saved map heading/uncertainty
-when a matching `<map>.orientation.yaml` sidecar is available. This is independent
-of `use_gps`: indoor maps can also have saved orientation. The compass accounts
+The browser displays a true-North compass and the captured map heading and
+uncertainty when valid orientation is stored in the database or supplied by a
+matching `<map>.orientation.yaml` sidecar. This is independent of `use_gps`: indoor maps can also have saved orientation. The compass accounts
 for the raster origin yaw and is included in exported PNGs.
+
+`map_orientation_saver` is an optional companion package. Its estimator uses
+absolute IMU heading and TF to estimate the map frame's orientation relative to
+true North and publishes `localization/map_orientation`. During live-map
+collection, the Wi-Fi logger captures valid, fresh estimates from that topic.
+For saved maps, the companion package's map-saving wrapper writes the
+`.orientation.yaml` sidecar that this suite imports. Wi-Fi collection works
+without the companion package; geographic orientation is simply unavailable
+unless another compatible source provides it. GPS is not required for this
+orientation path.
 
 Save the raster and sidecar with the `map_orientation_saver` package. Collection
 captures the complete original sidecar YAML in the map's database row, together
-with its import time, saved time, validated status/reason, true-ENU heading and
-optional uncertainty. The importer verifies the schema, map hash and geometry.
+with its import time, saved time, validated status/reason, true-ENU heading, and
+optional uncertainty. The importer verifies the schema, map hash, and geometry.
 The passive collector and survey node check every five seconds for a sidecar
-saved later.
-Missing or mismatched files preserve previously captured metadata. Invalid
-replacements also preserve an already validated snapshot.
+saved later. Missing or mismatched files preserve previously captured metadata.
+Invalid replacements also preserve an already validated snapshot.
 
 The viewer uses normalized database fields, so copied databases retain their
 orientation without external files. For maps with no imported metadata, it can
@@ -501,7 +514,7 @@ The snapshot can be opened by the same viewer on another computer.
 
 ## RViz status overlay
 
-The V2 combined launch starts `wifi_overlay_node.py` by default; use
+The combined V2 launch starts `wifi_overlay_node.py` by default; use
 `overlay:=false` to disable it. The bridge converts JSON from
 `wifi_monitor/status` (`std_msgs/msg/String`) to `wifi/overlay`
 (`rviz_2d_overlay_msgs/msg/OverlayText`). Topics are relative to the node namespace.
@@ -525,10 +538,9 @@ Subprocess tracing is enabled by default on the logger and survey nodes via
 `trace_subprocess_runs: true`. Each `iw`, `ping`, and `iperf3` command is logged at
 INFO level immediately before execution, with shell quoting to preserve argument
 boundaries (commands still execute without a shell). Disable it in the common
-YAML parameters or at runtime on each node:
+YAML parameters or at runtime for each node:
 
 ```bash
 ros2 param set /wifi_logger_node trace_subprocess_runs false
 ros2 param set /wifi_survey_node trace_subprocess_runs false
 ```
-
