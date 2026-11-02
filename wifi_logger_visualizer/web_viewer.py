@@ -80,6 +80,7 @@ button:hover { background:#45464a; }
 <option value="loaded_latency">Loaded latency</option>
 <option value="age">Observation age</option><option value="bssid">Access point</option>
 </select></label>
+<label><input id="minMax" type="checkbox"> Min/Max</label>
 <label><input id="unmeasured" type="checkbox"> Highlight unmeasured free cells</label>
 <button id="keepRun" disabled hidden>Promote</button><button id="fitMap" title="Reset zoom and pan">Fit map</button><button id="refresh">Refresh</button>
 <label>Map name <input id="mapName" type="text" maxlength="100" placeholder="office" value="map"></label><button id="saveMap">Export ZIP</button><button id="export">Export PNG</button></div>
@@ -132,10 +133,17 @@ function gpsDetails(cell){
   //+ ` · Covariance (ENU, m²): ${value(cell.gps_covariance)} · Covariance type: ${value(cell.gps_covariance_type)}`;
 }
 let payload=null, drawn=[];
-function color(value, metric) {
+function displayRange(metric, rows){
+ if(metric==='bssid')return null;
+ if(!document.getElementById('minMax').checked)return ranges[metric];
+ let low=Infinity,high=-Infinity;
+ for(const {value} of rows){low=Math.min(low,value);high=Math.max(high,value);}
+ return low===Infinity?null:[low,high];
+}
+function color(value, metric, range=ranges[metric]) {
  if(metric==='bssid'){let h=0; for(const c of (value||'')) h=(h*31+c.charCodeAt(0))%360;
    return `hsla(${h},85%,50%,.68)`;}
- let [lo,hi]=ranges[metric], n=Math.max(0,Math.min(1,(value-lo)/(hi-lo)));
+ let [lo,hi]=range, n=lo===hi ? .5 : Math.max(0,Math.min(1,(value-lo)/(hi-lo)));
  if(metric.includes('latency')||metric==='age') n=1-n;
  return `hsla(${n*120},100%,50%,.68)`;
 }
@@ -185,7 +193,7 @@ function drawOrientation(){
  const heading=orientation.map_x_heading_from_east_deg;
  details.textContent=`Map +X: ${(Math.abs(heading)<.05?0:heading).toFixed(1)}° from East${uncertainty}`;
 }
-function drawLegend(metric){
+function drawLegend(metric, range){
  const title=document.getElementById('legendTitle');
  const body=document.getElementById('legendBody');title.textContent=titles[metric];
  body.replaceChildren();
@@ -200,16 +208,28 @@ function drawLegend(metric){
   if(!values.length)body.textContent='No access points measured';
   return;
  }
- const [low,high]=ranges[metric],reverse=metric.includes('latency')||metric==='age';
+ if(!range){body.textContent='No measurements';drawUnmeasuredLegend(body);return;}
+ const [low,high]=range,reverse=metric.includes('latency')||metric==='age';
+ const format=value=>`${value.toFixed(2)} ${units[metric]}`;
+ if(low===high){
+  const row=document.createElement('div');row.className='legendEntry';
+  const swatch=document.createElement('span');swatch.className='legendSwatch';
+  swatch.style.background=color(low,metric,range);
+  const label=document.createElement('span');label.textContent=format(low);
+  row.append(swatch,label);body.append(row);drawUnmeasuredLegend(body);return;
+ }
  const scale=document.createElement('div');scale.className='legendScale';
  const bar=document.createElement('div');bar.className='legendBar';
  bar.style.background=reverse?'linear-gradient(to top,#00ff00,#ff0000)':
   'linear-gradient(to top,#ff0000,#00ff00)';
  const labels=document.createElement('div');labels.className='legendLabels';
  const highLabel=document.createElement('span'),lowLabel=document.createElement('span');
- highLabel.textContent=`${high} ${units[metric]}`;
- lowLabel.textContent=`${low} ${units[metric]}`;
+ highLabel.textContent=format(high);
+ lowLabel.textContent=format(low);
  labels.append(highLabel,lowLabel);scale.append(bar,labels);body.append(scale);
+ drawUnmeasuredLegend(body);
+}
+function drawUnmeasuredLegend(body){
  if(document.getElementById('unmeasured').checked){
   const note=document.createElement('div');note.className='legendEntry';
   const swatch=document.createElement('span');swatch.className='legendSwatch';
@@ -266,13 +286,18 @@ viewport.addEventListener('lostpointercapture',endMapDrag);
 viewport.addEventListener('dblclick',resetMapView);
 document.getElementById('fitMap').onclick=resetMapView;
 function draw(){
+ const metric=document.getElementById('metric').value;
+ document.getElementById('minMax').disabled=metric==='bssid';
  if(!payload || !document.getElementById("map").naturalWidth)return;
  const img=document.getElementById('map'), c=document.getElementById('overlay');
  c.width=img.naturalWidth;c.height=img.naturalHeight;const x=c.getContext('2d');
  x.clearRect(0,0,c.width,c.height);drawn=[];
- const metric=document.getElementById('metric').value;
+ const rows=payload.cells.map(cell=>({cell,value:valueFor(cell,metric)}))
+  .filter(({value})=>metric==='bssid'?value!==null&&value!==undefined:
+   typeof value==='number'&&Number.isFinite(value));
+ const range=displayRange(metric,rows);
  drawOrientation();
- drawLegend(metric);
+ drawLegend(metric,range);
  const size=payload.cell_size/payload.map.resolution;
  const measured=new Set(payload.cells.map(v=>v.cell_x+','+v.cell_y));
  if(document.getElementById('unmeasured').checked){
@@ -281,9 +306,8 @@ function draw(){
    const key=Math.floor(p[0]/payload.cell_size)+','+Math.floor(p[1]/payload.cell_size);
    if(!measured.has(key))x.fillRect(px-size/2,py-size/2,size,size);}
  }
- for(const cell of payload.cells){const v=valueFor(cell,metric);
-  if(v===null||v===undefined)continue;
-  const [px,py]=pixel(cell.center_x,cell.center_y);x.fillStyle=color(v,metric);
+ for(const {cell,value:v} of rows){
+  const [px,py]=pixel(cell.center_x,cell.center_y);x.fillStyle=color(v,metric,range);
   x.fillRect(px-size/2,py-size/2,size,size);drawn.push({px,py,size,cell,value:v});}
 }
 let loading=false;
@@ -339,6 +363,7 @@ async function loadData(){
  }finally{loading=false;}
 }
 document.getElementById('metric').onchange=draw;
+document.getElementById('minMax').onchange=draw;
 document.getElementById('unmeasured').onchange=draw;
 document.getElementById('mapSelect').onchange=loadData;
 document.getElementById('refresh').onclick=loadData;

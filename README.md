@@ -272,7 +272,11 @@ ssh -L 8088:127.0.0.1:8088 titania
 
 Then open <http://127.0.0.1:8088>. The browser supports map/layer selection,
 unmeasured highlighting, cell inspection, live refresh, and a color key to the
-right of the map.
+right of the map. **Min/Max** (unchecked by default) stretches numeric colors
+and legend limits to the selected map's displayed measurements. It uses each
+cell's latest value for signal/link rates, rather than historical extrema.
+It is disabled for access-point colors; a constant range uses one midpoint color.
+Refresh recalculates the range, and PNG exports use the selected coloring.
 Scroll over the map to zoom around the mouse pointer; drag with the left mouse
 button to pan. Double-click or select **Fit map** to reset the view. Refresh
 preserves zoom and pan; selecting another map resets them. PNG exports retain
