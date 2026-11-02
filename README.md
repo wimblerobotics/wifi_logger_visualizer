@@ -47,11 +47,15 @@ The package includes five ROS nodes and a standalone web server:
 | `wifi_visualizer_node.py` | Publishes colored cell markers for RViz, with optional highlighting of unmeasured free space. |
 | `wifi_overlay_node.py` | Publishes a text overlay showing Wi-Fi status in RViz. |
 | `survey_sim_node.py` | Generates repeatable synthetic passive Wi-Fi measurements from the simulated robot's position. |
-| `web_viewer.py` | Serves an interactive coverage map for live viewing and post-run analysis. |
+| `web_viewer.py` | Serves an interactive coverage map for live viewing and post-run analysis. http://<robot IP>:8088 |
 
 **Note:** Unlike the [V1 version](https://github.com/slgrobotics/wifi_logger_visualizer/blob/main_v1/README.md),
 the V2 visualizer publishes markers rather than navigation costmaps. There is no
 separate Heat Mapper node; visualization uses measured cells without spatial interpolation.
+
+Here is Web Viewer at http://<robot IP>:8088 (sim run, live map capture):
+
+<img alt="V2 Web Viewer" src="https://github.com/user-attachments/assets/b5f7e322-a703-4db2-96f9-974da24c09a7" />
 
 ## Features
 
