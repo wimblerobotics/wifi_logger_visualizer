@@ -14,6 +14,28 @@ data, with RViz visualization and a browser-based viewer.
 This package targets **Ubuntu 26.04** and **ROS 2 Lyrical**. Familiarity with
 ROS 2 workspaces, launch files, parameters, and coordinate frames is assumed.
 
+**Contents:**
+
+- [Overview](#overview)
+- [Features](#features)
+- [Dependencies](#dependencies)
+- [Installation](#installation)
+- [Architecture change — 2026-10-24](#architecture-change--2026-10-24)
+- [Collection runs, simulation and live maps](#collection-runs-simulation-and-live-maps)
+- [Data model](#data-model)
+- [Passive monitoring](#passive-monitoring)
+- [Optional GPS metadata](#optional-gps-metadata)
+- [Explicit surveys](#explicit-surveys)
+- [RViz](#rviz)
+- [Browser viewer and snapshots](#browser-viewer-and-snapshots)
+  - [Save standard map files from the database](#save-standard-map-files-from-the-database)
+  - [Map orientation](#map-orientation)
+  - [Access point names](#access-point-names)
+- [Future work](#future-work)
+- [RViz status overlay](#rviz-status-overlay)
+
+-------------
+
 ## Overview
 
 The package includes five ROS nodes and a standalone web server:
